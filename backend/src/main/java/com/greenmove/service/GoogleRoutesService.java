@@ -61,6 +61,9 @@ public class GoogleRoutesService {
                 "longitude", req.getDestination().getLng()
             )));
 
+            bodyMap.put("origin", originMap);
+            bodyMap.put("destination", destMap);
+
             String travelMode = "DRIVE";
             if ("MOTORCYCLE".equalsIgnoreCase(req.getProfile()) || "TWO_WHEELER".equalsIgnoreCase(req.getProfile())) {
                 travelMode = "TWO_WHEELER";
