@@ -32,8 +32,21 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
     mapRef.current = map;
 
+    // Attach ResizeObserver to automatically handle container dimension changes
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (mapRef.current) {
+          mapRef.current.resize();
+        }
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     map.on('load', () => {
       map.resize();
+      setTimeout(() => map?.resize(), 100);
+      setTimeout(() => map?.resize(), 500);
       setMapLoaded(true);
       setMapError(null);
     });
@@ -49,6 +62,9 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     });
 
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       if (originMarkerRef.current) {
         originMarkerRef.current.remove();
         originMarkerRef.current = null;
