@@ -14,18 +14,17 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
   const destinationMarkerRef = useRef(null);
   const evStationMarkersRef = useRef([]);
 
-  const apiKey = import.meta.env.VITE_MAPTILER_API_KEY || '';
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(null);
 
   // Initialize MapLibre Map
   useEffect(() => {
-    if (!apiKey || !mapContainerRef.current) return;
+    if (!mapContainerRef.current) return;
     setMapError(null);
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${apiKey}`,
+      style: "https://tiles.openfreemap.org/styles/liberty",
       center: DEFAULT_CENTER,
       zoom: 12,
     });
@@ -62,9 +61,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     map.on('error', (e) => {
       console.error("[GreenMoveMap] MapLibre error:", e);
       const msg = e && e.error && e.error.message ? e.error.message : '';
-      if (msg.includes('403') || msg.includes('Forbidden') || msg.includes('Key usage restricted')) {
-        setMapError("MapTiler 403 Forbidden: Key usage restricted or origin mismatch.");
-      } else if (msg) {
+      if (msg) {
         setMapError(`Map loading error: ${msg}`);
       }
     });
@@ -85,7 +82,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       evStationMarkersRef.current = [];
       map.remove();
     };
-  }, [apiKey]);
+  }, []);
 
   // Handle Marker & Centering updates dynamically
   useEffect(() => {
@@ -345,22 +342,6 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       alert("Geolocation is not supported by your browser.");
     }
   };
-
-  if (!apiKey) {
-    return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-container-low text-center p-md z-10 border border-outline-variant rounded-[24px]">
-        <span className="material-symbols-outlined text-[48px] text-primary mb-4">map</span>
-        <h3 className="text-headline-md font-headline-md text-on-surface mb-2">MapTiler API Key Required</h3>
-        <p className="text-body-md text-on-surface-variant max-w-sm mb-4">
-          To view the interactive map, please configure the <code>VITE_MAPTILER_API_KEY</code> environment variable in your Vite setup.
-        </p>
-        <div className="bg-surface-container border border-outline-variant p-3 rounded-lg text-label-xs font-label-xs font-mono text-left max-w-md">
-          # Example .env file in root:<br/>
-          VITE_MAPTILER_API_KEY=your_maptiler_key_here
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="absolute inset-0">
