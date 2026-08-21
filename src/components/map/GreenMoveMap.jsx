@@ -2,7 +2,35 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// Default center: Bangalore
+// High-reliability keyless basemap style (CartoDB Voyager GL) with OpenStreetMap fallback
+const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+
+const OSM_FALLBACK_STYLE = {
+  version: 8,
+  sources: {
+    'osm-tiles': {
+      type: 'raster',
+      tiles: [
+        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+      ],
+      tileSize: 256,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+    }
+  },
+  layers: [
+    {
+      id: 'osm-tiles-layer',
+      type: 'raster',
+      source: 'osm-tiles',
+      minzoom: 0,
+      maxzoom: 19
+    }
+  ]
+};
+
+// Default center: Bangalore / Indore fallback
 const DEFAULT_CENTER = [77.5946, 12.9716];
 
 export default function GreenMoveMap({ origin, destination, route, evStations = [], onRecenterRef }) {
@@ -24,7 +52,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: BASEMAP_STYLE,
       center: DEFAULT_CENTER,
       zoom: 12,
     });
@@ -58,11 +86,18 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       triggerMapReady();
     });
 
+    let fallbackTriggered = false;
     map.on('error', (e) => {
       console.error("[GreenMoveMap] MapLibre error:", e);
       const msg = e && e.error && e.error.message ? e.error.message : '';
-      if (msg) {
-        setMapError(`Map loading error: ${msg}`);
+      if (!fallbackTriggered && (msg.includes('403') || msg.includes('Failed to fetch') || msg.includes('NetworkError'))) {
+        fallbackTriggered = true;
+        console.warn("[GreenMoveMap] Primary vector style unavailable. Falling back to OpenStreetMap raster tiles.");
+        try {
+          map.setStyle(OSM_FALLBACK_STYLE);
+        } catch (err) {
+          console.error("OSM fallback setStyle error:", err);
+        }
       }
     });
 
