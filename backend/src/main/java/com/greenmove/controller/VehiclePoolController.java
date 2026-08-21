@@ -33,6 +33,25 @@ public class VehiclePoolController {
         return ResponseEntity.ok(vehiclePoolService.listPools(currentUserId));
     }
 
+    /**
+     * Route-based discovery (Phase 2): returns only ACTIVE pools with an open seat whose
+     * origin AND destination match the supplied route. Never returns the full pool list --
+     * callers must supply both {@code origin} and {@code destination}. Public, like the
+     * browse listing, but the {@code joined}/{@code own} flags on each result are still
+     * personalized when the caller is authenticated.
+     */
+    @GetMapping("/search")
+    public ResponseEntity<?> searchPools(Authentication authentication,
+                                          @RequestParam(name = "origin", required = false) String origin,
+                                          @RequestParam(name = "destination", required = false) String destination) {
+        String currentUserId = authentication != null ? authentication.getName() : null;
+        try {
+            return ResponseEntity.ok(vehiclePoolService.searchPools(currentUserId, origin, destination));
+        } catch (PoolException ex) {
+            return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
+        }
+    }
+
     /** Pools created by the current user, for their "My Pools" management view. */
     @GetMapping("/mine")
     public ResponseEntity<?> listMyPools(Authentication authentication) {

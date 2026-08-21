@@ -2,11 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-.maplibregl-canvas {
-  width: 100% !important;
-  height: 100% !important;
-}
-
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';
     font-weight: normal;

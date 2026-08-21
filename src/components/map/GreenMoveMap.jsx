@@ -2,42 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// High-reliability keyless basemap style (CartoDB Voyager GL) with OpenStreetMap fallback
-const BASEMAP_STYLE = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-
-const OSM_FALLBACK_STYLE = {
-  version: 8,
-  sources: {
-    'osm-tiles': {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
-      ],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
-    }
-  },
-  layers: [
-    {
-      id: 'osm-tiles-layer',
-      type: 'raster',
-      source: 'osm-tiles',
-      minzoom: 0,
-      maxzoom: 19
-    }
-  ]
-};
-
-// Default center: Bangalore / Indore fallback
+// Default center: Bangalore
 const DEFAULT_CENTER = [77.5946, 12.9716];
-
-// fitBounds padding: the bottom results card overlays the map on desktop
-// (see PlanRoute.jsx "Bottom Results Overlay", md:absolute md:bottom-5),
-// so bounds need extra bottom clearance or the route/destination render
-// underneath it. Keep in sync with that card's rendered height.
-const FIT_BOUNDS_PADDING = { top: 60, bottom: 260, left: 60, right: 60 };
 
 export default function GreenMoveMap({ origin, destination, route, evStations = [], onRecenterRef }) {
   const mapContainerRef = useRef(null);
@@ -48,34 +14,23 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
   const destinationMarkerRef = useRef(null);
   const evStationMarkersRef = useRef([]);
 
+  const apiKey = import.meta.env.VITE_MAPTILER_API_KEY || '';
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(null);
 
   // Initialize MapLibre Map
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!apiKey || !mapContainerRef.current) return;
     setMapError(null);
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: OSM_FALLBACK_STYLE,
+      style: `https://api.maptiler.com/maps/streets-v2/style.json?key=${apiKey}`,
       center: DEFAULT_CENTER,
       zoom: 12,
     });
 
     mapRef.current = map;
-
-    const triggerMapReady = () => {
-      map.resize();
-      setTimeout(() => map?.resize(), 100);
-      setTimeout(() => map?.resize(), 500);
-      setMapLoaded(true);
-      setMapError(null);
-    };
-
-    map.on('style.load', () => {
-      triggerMapReady();
-    });
 
     // Attach ResizeObserver to automatically handle container dimension changes
     let resizeObserver = null;
@@ -89,19 +44,21 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     }
 
     map.on('load', () => {
-      triggerMapReady();
+      map.resize();
+      setTimeout(() => map?.resize(), 100);
+      setTimeout(() => map?.resize(), 500);
+      setMapLoaded(true);
+      setMapError(null);
     });
 
-    // The map is initialized directly on OSM_FALLBACK_STYLE (see `style:` above),
-    // so there is no further fallback to switch to. Previously this handler called
-    // map.setStyle(OSM_FALLBACK_STYLE) again on any tile error (403s from the public
-    // OSM tile servers are common) — even though the style was already OSM_FALLBACK_STYLE.
-    // setStyle() reconciles sources/layers against the style JSON regardless of whether
-    // the style actually changed, so it silently deleted the route-source/route-layer
-    // added via addSource/addLayer. Individual raster tile errors are expected/harmless
-    // and must NOT trigger a style reset.
     map.on('error', (e) => {
-      console.error("[GreenMoveMap] MapLibre error:", e);
+      console.error("MapLibre error encountered:", e);
+      const msg = e && e.error && e.error.message ? e.error.message : '';
+      if (msg.includes('403') || msg.includes('Forbidden') || msg.includes('Key usage restricted')) {
+        setMapError("MapTiler 403 Forbidden: Key usage restricted or origin mismatch.");
+      } else if (msg) {
+        setMapError(`Map loading error: ${msg}`);
+      }
     });
 
     return () => {
@@ -120,7 +77,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       evStationMarkersRef.current = [];
       map.remove();
     };
-  }, []);
+  }, [apiKey]);
 
   // Handle Marker & Centering updates dynamically
   useEffect(() => {
@@ -237,17 +194,10 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     };
 
     if (!route || !route.geometry) {
-      console.log("[GreenMoveMap] Route prop is empty or missing geometry.");
       if (map.getLayer(layerId)) map.removeLayer(layerId);
       if (map.getLayer(outlineLayerId)) map.removeLayer(outlineLayerId);
       if (map.getSource(sourceId)) map.removeSource(sourceId);
     } else {
-      const coords = route.geometry.coordinates || [];
-      console.log(`[GreenMoveMap] Route received. Mode: ${route.mode}, Coords Count: ${coords.length}`);
-      if (coords.length > 0) {
-        console.log(`[GreenMoveMap] First coord:`, coords[0], `Last coord:`, coords[coords.length - 1]);
-      }
-
       const geojsonSourceData = {
         type: 'Feature',
         properties: {},
@@ -258,13 +208,11 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const existingSource = map.getSource(sourceId);
 
       if (existingSource) {
-        console.log("[GreenMoveMap] Updating existing route-source GeoJSON data.");
         existingSource.setData(geojsonSourceData);
         if (map.getLayer(layerId)) {
           map.setPaintProperty(layerId, 'line-color', lineColor);
         }
       } else {
-        console.log("[GreenMoveMap] Adding new route-source & layers to MapLibre.");
         map.addSource(sourceId, {
           type: 'geojson',
           data: geojsonSourceData
@@ -277,8 +225,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
           source: sourceId,
           layout: {
             'line-join': 'round',
-            'line-cap': 'round',
-            'visibility': 'visible'
+            'line-cap': 'round'
           },
           paint: {
             'line-color': '#FFFFFF',
@@ -293,35 +240,23 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
           source: sourceId,
           layout: {
             'line-join': 'round',
-            'line-cap': 'round',
-            'visibility': 'visible'
+            'line-cap': 'round'
           },
           paint: {
             'line-color': lineColor,
-            'line-width': 6
+            'line-width': 5
           }
         });
       }
     }
 
     // 5. Fit Bounds / Centering Behavior
-    if (route && route.geometry && Array.isArray(route.geometry.coordinates) && route.geometry.coordinates.length > 0) {
+    if (route && route.geometry && route.geometry.coordinates) {
       const coords = route.geometry.coordinates;
       const bounds = new maplibregl.LngLatBounds();
-      coords.forEach(coord => {
-        if (Array.isArray(coord) && coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-          bounds.extend(coord);
-        }
-      });
-
-      if (!bounds.isEmpty()) {
-        console.log("[GreenMoveMap] Executing map.fitBounds with bounds:", bounds.toString());
-        map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
-      } else {
-        console.warn("[GreenMoveMap] Bounds object is empty after iteration.");
-      }
+      coords.forEach(coord => bounds.extend(coord));
+      map.fitBounds(bounds, { padding: 80, duration: 1000 });
     } else {
-      console.log("[GreenMoveMap] No route geometry for fitBounds. Checking origin/dest markers.");
       const hasOrigin = origin && typeof origin.lng === 'number' && typeof origin.lat === 'number';
       const hasDest = destination && typeof destination.lng === 'number' && typeof destination.lat === 'number';
 
@@ -329,8 +264,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
         const bounds = new maplibregl.LngLatBounds()
           .extend([origin.lng, origin.lat])
           .extend([destination.lng, destination.lat]);
-        console.log("[GreenMoveMap] Fitting bounds to Origin & Destination markers.");
-        map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
+        map.fitBounds(bounds, { padding: 80, duration: 1000 });
       } else if (hasOrigin) {
         map.flyTo({ center: [origin.lng, origin.lat], zoom: 14, duration: 1000 });
       } else if (hasDest) {
@@ -362,7 +296,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const coords = route.geometry.coordinates;
       const bounds = new maplibregl.LngLatBounds();
       coords.forEach(coord => bounds.extend(coord));
-      map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
+      map.fitBounds(bounds, { padding: 80, duration: 1000 });
       return;
     }
     
@@ -373,7 +307,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const bounds = new maplibregl.LngLatBounds()
         .extend([origin.lng, origin.lat])
         .extend([destination.lng, destination.lat]);
-      map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
+      map.fitBounds(bounds, { padding: 80, duration: 1000 });
     } else if (hasOrigin) {
       map.flyTo({ center: [origin.lng, origin.lat], zoom: 14, duration: 1000 });
     } else if (hasDest) {
@@ -403,6 +337,22 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       alert("Geolocation is not supported by your browser.");
     }
   };
+
+  if (!apiKey) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-container-low text-center p-md z-10 border border-outline-variant rounded-[24px]">
+        <span className="material-symbols-outlined text-[48px] text-primary mb-4">map</span>
+        <h3 className="text-headline-md font-headline-md text-on-surface mb-2">MapTiler API Key Required</h3>
+        <p className="text-body-md text-on-surface-variant max-w-sm mb-4">
+          To view the interactive map, please configure the <code>VITE_MAPTILER_API_KEY</code> environment variable in your Vite setup.
+        </p>
+        <div className="bg-surface-container border border-outline-variant p-3 rounded-lg text-label-xs font-label-xs font-mono text-left max-w-md">
+          # Example .env file in root:<br/>
+          VITE_MAPTILER_API_KEY=your_maptiler_key_here
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0">

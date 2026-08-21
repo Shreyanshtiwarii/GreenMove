@@ -1,66 +1,45 @@
+const apiKey = import.meta.env.VITE_MAPTILER_API_KEY || '';
+
 /**
- * Searches for locations matching the given query using keyless OpenStreetMap / OpenRouteService Geocoding.
+ * Searches for locations matching the given query using MapTiler's Geocoding API.
  * @param {string} query The location search query.
  * @returns {Promise<Array<{name: string, lng: number, lat: number}>>}
  */
 export async function searchLocations(query) {
   if (!query || query.trim().length < 2) return [];
-  const orsKey = import.meta.env.VITE_OPENROUTESERVICE_API_KEY || '';
-
-  if (orsKey) {
-    try {
-      const url = `https://api.openrouteservice.org/geocode/search?api_key=${orsKey}&text=${encodeURIComponent(query)}&size=5`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.features && data.features.length > 0) {
-          return data.features.map(feat => ({
-            name: feat.properties.label || feat.properties.name,
-            lng: feat.geometry.coordinates[0],
-            lat: feat.geometry.coordinates[1]
-          }));
-        }
-      }
-    } catch (e) {
-      console.warn("ORS Geocoding fallback to Photon:", e);
-    }
+  if (!apiKey) {
+    throw new Error("MapTiler API key is not configured.");
   }
-
-  // Keyless OpenStreetMap Photon geocoding API
-  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`;
+  //const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${apiKey}&autocomplete=true&limit=5`;
+  const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${apiKey}&autocomplete=true&limit=5&country=in`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Unable to search locations");
   }
   const data = await response.json();
   if (!data.features) return [];
-  return data.features.map(feat => {
-    const p = feat.properties;
-    const nameParts = [p.name, p.street, p.city || p.town || p.district, p.state, p.country].filter(Boolean);
-    return {
-      name: nameParts.join(', '),
-      lng: feat.geometry.coordinates[0],
-      lat: feat.geometry.coordinates[1]
-    };
-  });
+  return data.features.map(feat => ({
+    name: feat.place_name,
+    lng: feat.center[0],
+    lat: feat.center[1]
+  }));
 }
 
 /**
- * Translates longitude/latitude coordinates into a readable place name using keyless OpenStreetMap geocoding.
+ * Translates longitude/latitude coordinates into a readable place name.
  * @param {number} lng Longitude.
  * @param {number} lat Latitude.
  * @returns {Promise<string>}
  */
 export async function reverseGeocode(lng, lat) {
+  if (!apiKey) return "Current Location";
+  const url = `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=${apiKey}&limit=1`;
   try {
-    const url = `https://photon.komoot.io/api/?q=${lat},${lng}&limit=1`;
     const response = await fetch(url);
     if (!response.ok) return "Current Location";
     const data = await response.json();
     if (data.features && data.features.length > 0) {
-      const p = data.features[0].properties;
-      const nameParts = [p.name, p.city || p.town || p.district, p.state].filter(Boolean);
-      return nameParts.length > 0 ? nameParts.join(', ') : "Current Location";
+      return data.features[0].place_name;
     }
   } catch (error) {
     console.error("Reverse geocoding error:", error);

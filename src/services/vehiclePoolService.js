@@ -41,6 +41,21 @@ export async function getPools() {
 }
 
 /**
+ * Route-based discovery (Phase 2). Returns ONLY pools that are ACTIVE, still have an
+ * open seat, and match both `origin` and `destination` -- never the full pool list.
+ * Matching, status, and seat filtering all happen server-side.
+ * @param {string} origin
+ * @param {string} destination
+ */
+export async function searchPools(origin, destination) {
+  const params = new URLSearchParams({ origin, destination });
+  const res = await fetch(`${API_BASE_URL}/pools/search?${params.toString()}`, {
+    headers: { ...authHeaders() }
+  });
+  return parseResponse(res);
+}
+
+/**
  * Create a new vehicle pool. Requires authentication.
  * @param {{startLocation: string, destination: string, departureTime: string, totalSeats: number, costPerPassenger: number}} data
  */
