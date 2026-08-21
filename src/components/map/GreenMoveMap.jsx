@@ -52,7 +52,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: BASEMAP_STYLE,
+      style: OSM_FALLBACK_STYLE,
       center: DEFAULT_CENTER,
       zoom: 12,
     });
