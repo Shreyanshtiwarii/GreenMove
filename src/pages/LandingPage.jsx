@@ -1,15 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const [impactVisible, setImpactVisible] = useState(false);
-  
-  // Count-up states
-  const [co2Saved, setCo2Saved] = useState(0);
-  const [moneySaved, setMoneySaved] = useState(0);
-  const [tripsAvoided, setTripsAvoided] = useState(0);
-  const [ecoScore, setEcoScore] = useState(0);
 
   // Setup intersection observer for scroll reveals (.lp-reveal)
   useEffect(() => {
@@ -23,9 +16,6 @@ export default function LandingPage() {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add('active');
-          if (entry.target.id === 'impact') {
-            setImpactVisible(true);
-          }
         }
       });
     }, observerOptions);
@@ -38,35 +28,6 @@ export default function LandingPage() {
     };
   }, []);
 
-  // Run count-up animation when impact section is visible
-  useEffect(() => {
-    if (!impactVisible) return;
-
-    const duration = 1500; // milliseconds
-    const steps = 50;
-    const interval = duration / steps;
-    let step = 0;
-
-    const timer = setInterval(() => {
-      step++;
-      if (step >= steps) {
-        setCo2Saved(12500);
-        setMoneySaved(845000);
-        setTripsAvoided(14200);
-        setEcoScore(92);
-        clearInterval(timer);
-      } else {
-        const factor = step / steps;
-        setCo2Saved(Math.round(12500 * factor));
-        setMoneySaved(Math.round(845000 * factor));
-        setTripsAvoided(Math.round(14200 * factor));
-        setEcoScore(Math.round(92 * factor));
-      }
-    }, interval);
-
-    return () => clearInterval(timer);
-  }, [impactVisible]);
-
   return (
     <div className="font-body-md text-on-surface antialiased bg-[#F7F9F5] min-h-screen selection:bg-primary-container selection:text-on-primary">
       {/* Top Navigation */}
@@ -77,12 +38,17 @@ export default function LandingPage() {
         </div>
         <div className="hidden md:flex items-center gap-8">
           <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#how-it-works">How it Works</a>
-          <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#impact">Impact</a>
           <button 
-            onClick={() => navigate('/dashboard')}
-            className="bg-primary-container text-on-primary font-label-sm text-label-sm px-6 py-2 rounded-lg hover:bg-primary transition-colors shadow-sm cursor-pointer"
+            onClick={() => navigate('/signin')}
+            className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
           >
             Sign In
+          </button>
+          <button 
+            onClick={() => navigate('/signup')}
+            className="bg-primary-container text-on-primary font-label-sm text-label-sm px-6 py-2 rounded-lg hover:bg-primary transition-colors shadow-sm cursor-pointer"
+          >
+            Sign Up
           </button>
         </div>
       </nav>
@@ -339,42 +305,6 @@ export default function LandingPage() {
                 <p className="font-label-xs text-label-xs text-on-surface-variant flex justify-between"><span>Cost:</span> <span class="text-primary font-semibold">₹0</span></p>
                 <p className="font-label-xs text-label-xs text-on-surface-variant flex justify-between"><span>CO2:</span> <span class="text-primary font-semibold">0kg</span></p>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Your Impact, In Numbers */}
-      <section className="py-20 px-md bg-primary-container text-on-primary lp-reveal" id="impact">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16 max-w-2xl mx-auto">
-            <h2 className="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg mb-4">Your Impact, In Numbers</h2>
-            <p className="font-body-md text-body-md text-primary-fixed-dim">Join thousands of users making a difference every day.</p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <p className="font-display-metrics text-display-metrics text-secondary-fixed mb-2">
-                {co2Saved.toLocaleString()}
-              </p>
-              <p className="font-label-sm text-label-sm text-primary-fixed-dim">kg CO2 Saved</p>
-            </div>
-            <div>
-              <p className="font-display-metrics text-display-metrics text-secondary-fixed mb-2">
-                <span className="text-3xl">₹</span>{moneySaved.toLocaleString()}
-              </p>
-              <p className="font-label-sm text-label-sm text-primary-fixed-dim">Money Saved</p>
-            </div>
-            <div>
-              <p className="font-display-metrics text-display-metrics text-secondary-fixed mb-2">
-                {tripsAvoided.toLocaleString()}
-              </p>
-              <p className="font-label-sm text-label-sm text-primary-fixed-dim">Solo Trips Avoided</p>
-            </div>
-            <div>
-              <p className="font-display-metrics text-display-metrics text-secondary-fixed mb-2">
-                {ecoScore}
-              </p>
-              <p className="font-label-sm text-label-sm text-primary-fixed-dim">Avg. Eco Score</p>
             </div>
           </div>
         </div>

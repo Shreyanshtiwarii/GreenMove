@@ -83,7 +83,6 @@ graph TD
 | **My Impact** | `/impact` | GET | `JourneyRepository` | Calculated DB | Refresh Verified | Lifetime metrics computed from user journey DB | 🟢 |
 | **Carpool** | `/carpool` | GET `/api/v1/carpools/matches` | `carpool_offers` DB | Live DB | Refresh Verified | Driver offers & passenger searches share DB table | 🟢 |
 | **EV Intelligence** | `/ev-intelligence` | GET `/api/v1/ev-charging` | OpenChargeMap v3 API | Live API | Active Session | Range feasibility + live EV station corridor | 🟢 |
-| **AI Assistant** | `/ai-assistant` | Internal | `aiService.js` | Interactive | Session | Interactive eco-commuting query response engine | 🟢 |
 | **Notifications** | `/notifications` | Internal | React State | Frontend Mock | Session | Renders empty state card when 0 alerts exist | ⚪ |
 | **Profile Settings**| `/profile` | Internal | `localStorage` | Local Storage | Session | Renders profile preferences configuration | 🟢 |
 | **Admin Dashboard** | `/admin` | GET `/api/v1/admin/dashboard-stats` | `AdminService.java` | Aggregated DB | Refresh Verified | Displays active users, routes planned & CO₂ saved | 🟢 |

@@ -13,3 +13,8 @@ spring:
     show-sql: false
   flyway:
     enabled: true
+
+greenmove:
+  jwt:
+    secret: test-only-jwt-secret-for-automated-tests-32chars
+    expiration-ms: 3600000

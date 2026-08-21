@@ -1,8 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import LogoutConfirmDialog from './LogoutConfirmDialog';
 
 export default function AdminSidebar() {
   const navigate = useNavigate();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleAdminLogout = () => {
+    localStorage.removeItem('adminToken');
+    navigate('/admin/login');
+  };
 
   const adminNavItems = [
     { name: 'Dashboard', path: '/admin', icon: 'dashboard' },
@@ -75,16 +82,21 @@ export default function AdminSidebar() {
 
         <button
           type="button"
-          onClick={() => {
-            localStorage.removeItem('adminToken');
-            navigate('/admin/login');
-          }}
+          onClick={() => setShowLogoutConfirm(true)}
           className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-label-sm font-label-sm text-error hover:bg-error-container/20 transition-colors cursor-pointer text-left w-full mt-1"
         >
           <span className="material-symbols-outlined text-[20px]">logout</span>
           <span>Admin Logout</span>
         </button>
       </div>
+      <LogoutConfirmDialog
+        open={showLogoutConfirm}
+        onCancel={() => setShowLogoutConfirm(false)}
+        onConfirm={() => {
+          setShowLogoutConfirm(false);
+          handleAdminLogout();
+        }}
+      />
     </nav>
   );
 }

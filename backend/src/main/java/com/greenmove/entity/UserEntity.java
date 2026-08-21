@@ -28,6 +28,15 @@ public class UserEntity {
     @Column(name = "last_active")
     private String lastActive;
 
+    @Column(name = "password_hash")
+    private String passwordHash;
+
+    @Column(name = "auth_provider", nullable = false)
+    private String authProvider = "LOCAL"; // LOCAL or GOOGLE
+
+    @Column(name = "google_id")
+    private String googleId;
+
     public UserEntity() {}
 
     public UserEntity(String id, String name, String email, String role, String status, String joinedDate, String lastActive) {
@@ -38,6 +47,20 @@ public class UserEntity {
         this.status = status;
         this.joinedDate = joinedDate;
         this.lastActive = lastActive;
+    }
+
+    public UserEntity(String id, String name, String email, String role, String status, String joinedDate,
+                       String lastActive, String passwordHash, String authProvider, String googleId) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.role = role;
+        this.status = status;
+        this.joinedDate = joinedDate;
+        this.lastActive = lastActive;
+        this.passwordHash = passwordHash;
+        this.authProvider = authProvider;
+        this.googleId = googleId;
     }
 
     public String getId() { return id; }
@@ -60,4 +83,13 @@ public class UserEntity {
 
     public String getLastActive() { return lastActive; }
     public void setLastActive(String lastActive) { this.lastActive = lastActive; }
+
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+
+    public String getAuthProvider() { return authProvider; }
+    public void setAuthProvider(String authProvider) { this.authProvider = authProvider; }
+
+    public String getGoogleId() { return googleId; }
+    public void setGoogleId(String googleId) { this.googleId = googleId; }
 }
