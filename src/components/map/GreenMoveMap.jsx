@@ -32,6 +32,18 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
     mapRef.current = map;
 
+    const triggerMapReady = () => {
+      map.resize();
+      setTimeout(() => map?.resize(), 100);
+      setTimeout(() => map?.resize(), 500);
+      setMapLoaded(true);
+      setMapError(null);
+    };
+
+    map.on('style.load', () => {
+      triggerMapReady();
+    });
+
     // Attach ResizeObserver to automatically handle container dimension changes
     let resizeObserver = null;
     if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
@@ -44,15 +56,11 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     }
 
     map.on('load', () => {
-      map.resize();
-      setTimeout(() => map?.resize(), 100);
-      setTimeout(() => map?.resize(), 500);
-      setMapLoaded(true);
-      setMapError(null);
+      triggerMapReady();
     });
 
     map.on('error', (e) => {
-      console.error("MapLibre error encountered:", e);
+      console.error("[GreenMoveMap] MapLibre error:", e);
       const msg = e && e.error && e.error.message ? e.error.message : '';
       if (msg.includes('403') || msg.includes('Forbidden') || msg.includes('Key usage restricted')) {
         setMapError("MapTiler 403 Forbidden: Key usage restricted or origin mismatch.");
