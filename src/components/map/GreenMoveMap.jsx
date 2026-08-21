@@ -199,10 +199,17 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     };
 
     if (!route || !route.geometry) {
+      console.log("[GreenMoveMap] Route prop is empty or missing geometry.");
       if (map.getLayer(layerId)) map.removeLayer(layerId);
       if (map.getLayer(outlineLayerId)) map.removeLayer(outlineLayerId);
       if (map.getSource(sourceId)) map.removeSource(sourceId);
     } else {
+      const coords = route.geometry.coordinates || [];
+      console.log(`[GreenMoveMap] Route received. Mode: ${route.mode}, Coords Count: ${coords.length}`);
+      if (coords.length > 0) {
+        console.log(`[GreenMoveMap] First coord:`, coords[0], `Last coord:`, coords[coords.length - 1]);
+      }
+
       const geojsonSourceData = {
         type: 'Feature',
         properties: {},
@@ -213,11 +220,13 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const existingSource = map.getSource(sourceId);
 
       if (existingSource) {
+        console.log("[GreenMoveMap] Updating existing route-source GeoJSON data.");
         existingSource.setData(geojsonSourceData);
         if (map.getLayer(layerId)) {
           map.setPaintProperty(layerId, 'line-color', lineColor);
         }
       } else {
+        console.log("[GreenMoveMap] Adding new route-source & layers to MapLibre.");
         map.addSource(sourceId, {
           type: 'geojson',
           data: geojsonSourceData
@@ -230,7 +239,8 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
           source: sourceId,
           layout: {
             'line-join': 'round',
-            'line-cap': 'round'
+            'line-cap': 'round',
+            'visibility': 'visible'
           },
           paint: {
             'line-color': '#FFFFFF',
@@ -245,23 +255,35 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
           source: sourceId,
           layout: {
             'line-join': 'round',
-            'line-cap': 'round'
+            'line-cap': 'round',
+            'visibility': 'visible'
           },
           paint: {
             'line-color': lineColor,
-            'line-width': 5
+            'line-width': 6
           }
         });
       }
     }
 
     // 5. Fit Bounds / Centering Behavior
-    if (route && route.geometry && route.geometry.coordinates) {
+    if (route && route.geometry && Array.isArray(route.geometry.coordinates) && route.geometry.coordinates.length > 0) {
       const coords = route.geometry.coordinates;
       const bounds = new maplibregl.LngLatBounds();
-      coords.forEach(coord => bounds.extend(coord));
-      map.fitBounds(bounds, { padding: 80, duration: 1000 });
+      coords.forEach(coord => {
+        if (Array.isArray(coord) && coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+          bounds.extend(coord);
+        }
+      });
+
+      if (!bounds.isEmpty()) {
+        console.log("[GreenMoveMap] Executing map.fitBounds with bounds:", bounds.toString());
+        map.fitBounds(bounds, { padding: 80, duration: 1000 });
+      } else {
+        console.warn("[GreenMoveMap] Bounds object is empty after iteration.");
+      }
     } else {
+      console.log("[GreenMoveMap] No route geometry for fitBounds. Checking origin/dest markers.");
       const hasOrigin = origin && typeof origin.lng === 'number' && typeof origin.lat === 'number';
       const hasDest = destination && typeof destination.lng === 'number' && typeof destination.lat === 'number';
 
@@ -269,6 +291,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
         const bounds = new maplibregl.LngLatBounds()
           .extend([origin.lng, origin.lat])
           .extend([destination.lng, destination.lat]);
+        console.log("[GreenMoveMap] Fitting bounds to Origin & Destination markers.");
         map.fitBounds(bounds, { padding: 80, duration: 1000 });
       } else if (hasOrigin) {
         map.flyTo({ center: [origin.lng, origin.lat], zoom: 14, duration: 1000 });
