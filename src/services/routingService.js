@@ -1,5 +1,7 @@
 import { API_BASE_URL } from '../config';
 
+const apiKey = import.meta.env.VITE_ORS_API_KEY || '';
+
 // Map user-friendly profile tokens to ORS endpoint profiles
 const PROFILE_MAP = {
   DRIVING: 'driving-car',
