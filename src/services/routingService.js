@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config';
+import { calculateCarpoolCost, calculateRouteCO2, calculateMotorcycleCost } from '../utils/sustainabilityCalculations';
 
 const apiKey = import.meta.env.VITE_ORS_API_KEY || '';
 
