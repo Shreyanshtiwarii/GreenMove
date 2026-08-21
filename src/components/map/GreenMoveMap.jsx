@@ -33,6 +33,12 @@ const OSM_FALLBACK_STYLE = {
 // Default center: Bangalore / Indore fallback
 const DEFAULT_CENTER = [77.5946, 12.9716];
 
+// fitBounds padding: the bottom results card overlays the map on desktop
+// (see PlanRoute.jsx "Bottom Results Overlay", md:absolute md:bottom-5),
+// so bounds need extra bottom clearance or the route/destination render
+// underneath it. Keep in sync with that card's rendered height.
+const FIT_BOUNDS_PADDING = { top: 60, bottom: 260, left: 60, right: 60 };
+
 export default function GreenMoveMap({ origin, destination, route, evStations = [], onRecenterRef }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -86,19 +92,16 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       triggerMapReady();
     });
 
-    let fallbackTriggered = false;
+    // The map is initialized directly on OSM_FALLBACK_STYLE (see `style:` above),
+    // so there is no further fallback to switch to. Previously this handler called
+    // map.setStyle(OSM_FALLBACK_STYLE) again on any tile error (403s from the public
+    // OSM tile servers are common) — even though the style was already OSM_FALLBACK_STYLE.
+    // setStyle() reconciles sources/layers against the style JSON regardless of whether
+    // the style actually changed, so it silently deleted the route-source/route-layer
+    // added via addSource/addLayer. Individual raster tile errors are expected/harmless
+    // and must NOT trigger a style reset.
     map.on('error', (e) => {
       console.error("[GreenMoveMap] MapLibre error:", e);
-      const msg = e && e.error && e.error.message ? e.error.message : '';
-      if (!fallbackTriggered && (msg.includes('403') || msg.includes('Failed to fetch') || msg.includes('NetworkError'))) {
-        fallbackTriggered = true;
-        console.warn("[GreenMoveMap] Primary vector style unavailable. Falling back to OpenStreetMap raster tiles.");
-        try {
-          map.setStyle(OSM_FALLBACK_STYLE);
-        } catch (err) {
-          console.error("OSM fallback setStyle error:", err);
-        }
-      }
     });
 
     return () => {
@@ -313,7 +316,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
       if (!bounds.isEmpty()) {
         console.log("[GreenMoveMap] Executing map.fitBounds with bounds:", bounds.toString());
-        map.fitBounds(bounds, { padding: 80, duration: 1000 });
+        map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
       } else {
         console.warn("[GreenMoveMap] Bounds object is empty after iteration.");
       }
@@ -327,7 +330,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
           .extend([origin.lng, origin.lat])
           .extend([destination.lng, destination.lat]);
         console.log("[GreenMoveMap] Fitting bounds to Origin & Destination markers.");
-        map.fitBounds(bounds, { padding: 80, duration: 1000 });
+        map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
       } else if (hasOrigin) {
         map.flyTo({ center: [origin.lng, origin.lat], zoom: 14, duration: 1000 });
       } else if (hasDest) {
@@ -359,7 +362,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const coords = route.geometry.coordinates;
       const bounds = new maplibregl.LngLatBounds();
       coords.forEach(coord => bounds.extend(coord));
-      map.fitBounds(bounds, { padding: 80, duration: 1000 });
+      map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
       return;
     }
     
@@ -370,7 +373,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       const bounds = new maplibregl.LngLatBounds()
         .extend([origin.lng, origin.lat])
         .extend([destination.lng, destination.lat]);
-      map.fitBounds(bounds, { padding: 80, duration: 1000 });
+      map.fitBounds(bounds, { padding: FIT_BOUNDS_PADDING, duration: 1000 });
     } else if (hasOrigin) {
       map.flyTo({ center: [origin.lng, origin.lat], zoom: 14, duration: 1000 });
     } else if (hasDest) {
