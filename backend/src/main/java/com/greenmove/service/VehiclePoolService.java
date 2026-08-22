@@ -1365,36 +1365,76 @@ public class VehiclePoolService {
                 if (STATUS_COMPLETED.equals(targetStatus)) {
                     mem.setStatus("CREDITED");
                     
-                    Double passengerDist = mem.getPassengerRouteDistanceMeters();
-                    if (passengerDist != null && passengerDist > 0) {
-                        UserEntity passengerUser = userRepository.findById(mem.getUserId()).orElse(null);
-                        if (passengerUser != null) {
-                            String fuelType = passengerUser.getFuelType();
-                            Double efficiency = passengerUser.getVehicleEfficiency();
-                            if (fuelType != null && efficiency != null && efficiency > 0) {
-                                com.greenmove.entity.FuelPriceEntity fuelPrice = fuelPriceRepository.findById(fuelType).orElse(null);
-                                if (fuelPrice != null) {
-                                    double distanceKm = passengerDist / 1000.0;
-                                    double fuelUsed = distanceKm / efficiency;
-                                    double soloCost = fuelUsed * fuelPrice.getPrice();
-                                    double carpoolCost = pool.getCostPerPassenger();
-                                    double saved = Math.max(0, soloCost - carpoolCost);
-                                    mem.setSoloCost(soloCost);
-                                    mem.setMoneySaved(saved);
-                                }
-                            }
-                            
-                            String emissionId = "car_" + (fuelType != null ? fuelType : "petrol"); 
-                            com.greenmove.entity.EmissionFactorEntity ef = emissionFactorRepository.findById(emissionId).orElse(null);
-                            if (ef == null && "ev_electricity".equals(fuelType)) {
-                                 ef = emissionFactorRepository.findById("ev_grid").orElse(null);
-                            }
-                            if (ef != null) {
-                                double distanceKm = passengerDist / 1000.0;
-                                mem.setCo2SavedKg(distanceKm * ef.getFactor());
+                    Double passengerDistMeters = mem.getPassengerRouteDistanceMeters();
+                    if (passengerDistMeters == null || passengerDistMeters <= 0) {
+                        passengerDistMeters = pool.getRouteDistanceMeters();
+                    }
+                    if (passengerDistMeters == null || passengerDistMeters <= 0) {
+                        passengerDistMeters = 10000.0;
+                    }
+                    mem.setPassengerRouteDistanceMeters(passengerDistMeters);
+
+                    double distanceKm = passengerDistMeters / 1000.0;
+
+                    UserEntity passengerUser = userRepository.findById(mem.getUserId()).orElse(null);
+                    double vehicleEfficiency = (passengerUser != null && passengerUser.getVehicleEfficiency() != null && passengerUser.getVehicleEfficiency() > 0)
+                            ? passengerUser.getVehicleEfficiency()
+                            : 15.0;
+
+                    String fuelType = (passengerUser != null && passengerUser.getFuelType() != null && !passengerUser.getFuelType().isBlank())
+                            ? passengerUser.getFuelType()
+                            : "petrol";
+
+                    double fuelPrice = 100.0;
+                    if (fuelPriceRepository != null) {
+                        com.greenmove.entity.FuelPriceEntity fpe = fuelPriceRepository.findById(fuelType.toLowerCase()).orElse(null);
+                        if (fpe != null && fpe.getPrice() != null && fpe.getPrice() > 0) {
+                            fuelPrice = fpe.getPrice();
+                        } else if ("petrol".equalsIgnoreCase(fuelType)) {
+                            fuelPrice = 104.50;
+                        } else if ("diesel".equalsIgnoreCase(fuelType)) {
+                            fuelPrice = 92.30;
+                        } else if ("cng".equalsIgnoreCase(fuelType)) {
+                            fuelPrice = 78.00;
+                        } else if ("ev_electricity".equalsIgnoreCase(fuelType)) {
+                            fuelPrice = 18.00;
+                        }
+                    }
+
+                    double fuelUsed = distanceKm / vehicleEfficiency;
+                    double soloCost = fuelUsed * fuelPrice;
+                    double carpoolCost = (pool.getCostPerPassenger() != null) ? pool.getCostPerPassenger() : 0.0;
+                    double moneySaved = Math.max(0.0, soloCost - carpoolCost);
+
+                    double emissionFactor = 2.3;
+                    if ("diesel".equalsIgnoreCase(fuelType)) {
+                        emissionFactor = 2.7;
+                    } else if ("cng".equalsIgnoreCase(fuelType)) {
+                        emissionFactor = 1.8;
+                    } else if ("ev_electricity".equalsIgnoreCase(fuelType)) {
+                        emissionFactor = 0.8;
+                    }
+
+                    if (emissionFactorRepository != null) {
+                        String emissionId = "car_" + fuelType.toLowerCase();
+                        com.greenmove.entity.EmissionFactorEntity ef = emissionFactorRepository.findById(emissionId).orElse(null);
+                        if (ef == null && "ev_electricity".equalsIgnoreCase(fuelType)) {
+                            ef = emissionFactorRepository.findById("ev_grid").orElse(null);
+                        }
+                        if (ef != null && ef.getFactor() != null && ef.getFactor() > 0) {
+                            if (ef.getUnit() != null && ef.getUnit().contains("km")) {
+                                emissionFactor = ef.getFactor() * vehicleEfficiency;
+                            } else {
+                                emissionFactor = ef.getFactor();
                             }
                         }
                     }
+
+                    double co2SavedKg = fuelUsed * emissionFactor;
+
+                    mem.setSoloCost(soloCost);
+                    mem.setMoneySaved(moneySaved);
+                    mem.setCo2SavedKg(co2SavedKg);
                 } else if (STATUS_TERMINATED.equals(targetStatus)) {
                     mem.setStatus("CANCELLED");
                 }
