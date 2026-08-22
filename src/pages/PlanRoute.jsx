@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import GreenMoveMap from '../components/map/GreenMoveMap';
+import LocationAutocompleteInput from '../components/LocationAutocompleteInput';
 import { searchLocations, reverseGeocode } from '../services/geocodingService';
 import { saveJourney } from '../services/historyService';
 import { getRoute, getMultimodalCandidates } from '../services/routingService';
@@ -47,13 +48,10 @@ export default function PlanRoute() {
   const [originInput, setOriginInput] = useState('Home (Vijay Nagar)');
   const [destinationInput, setDestinationInput] = useState('College (Rau)');
 
-  // Autocomplete UI states
-  const [originSuggestions, setOriginSuggestions] = useState([]);
-  const [destinationSuggestions, setDestinationSuggestions] = useState([]);
+  // "Use current location" (geolocation) loading indicator for the origin field.
+  // Suggestion search/debounce/error state now lives inside the shared
+  // LocationAutocompleteInput component (see src/components/LocationAutocompleteInput.jsx).
   const [originSearching, setOriginSearching] = useState(false);
-  const [destinationSearching, setDestinationSearching] = useState(false);
-  const [originError, setOriginError] = useState(null);
-  const [destinationError, setDestinationError] = useState(null);
 
   // Other form options
   const [passengers, setPassengers] = useState('1');
@@ -352,88 +350,17 @@ export default function PlanRoute() {
     }
   }, [allRoutes, preference, passengers]);
 
-  // Debounced search for Origin suggestions
-  useEffect(() => {
-    if (originInput.trim().length < 2) {
-      setOriginSuggestions([]);
-      setOriginError(null);
-      return;
-    }
-
-    if (origin && originInput === origin.name) {
-      setOriginSuggestions([]);
-      setOriginError(null);
-      return;
-    }
-
-    setOriginSearching(true);
-    setOriginError(null);
-
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const results = await searchLocations(originInput);
-        setOriginSuggestions(results);
-        if (results.length === 0) {
-          setOriginError("No locations found");
-        }
-      } catch (err) {
-        setOriginSuggestions([]);
-        setOriginError("Unable to search locations");
-      } finally {
-        setOriginSearching(false);
-      }
-    }, 450);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [originInput, origin]);
-
-  // Debounced search for Destination suggestions
-  useEffect(() => {
-    if (destinationInput.trim().length < 2) {
-      setDestinationSuggestions([]);
-      setDestinationError(null);
-      return;
-    }
-
-    if (destination && destinationInput === destination.name) {
-      setDestinationSuggestions([]);
-      setDestinationError(null);
-      return;
-    }
-
-    setDestinationSearching(true);
-    setDestinationError(null);
-
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const results = await searchLocations(destinationInput);
-        setDestinationSuggestions(results);
-        if (results.length === 0) {
-          setDestinationError("No locations found");
-        }
-      } catch (err) {
-        setDestinationSuggestions([]);
-        setDestinationError("Unable to search locations");
-      } finally {
-        setDestinationSearching(false);
-      }
-    }, 450);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [destinationInput, destination]);
-
+  // Real-location suggestion search/debounce for both fields is handled by the
+  // shared <LocationAutocompleteInput /> component; we only need to react to
+  // a location actually being picked.
   const handleSelectOrigin = (loc) => {
     setOrigin(loc);
     setOriginInput(loc.name);
-    setOriginSuggestions([]);
-    setOriginError(null);
   };
 
   const handleSelectDestination = (loc) => {
     setDestination(loc);
     setDestinationInput(loc.name);
-    setDestinationSuggestions([]);
-    setDestinationError(null);
   };
 
   const handleSwapLocations = () => {
@@ -623,47 +550,29 @@ export default function PlanRoute() {
         {/* Form Inputs */}
         <div className="space-y-4">
           {/* Origin Input */}
-          <div className="relative">
+          <div>
             <label className="text-label-xs font-label-xs text-on-surface-variant mb-1 block">Start Location</label>
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-primary text-sm">my_location</span>
-              <input 
-                type="text"
-                value={originInput}
-                onChange={(e) => setOriginInput(e.target.value)}
-                placeholder="Enter start location..."
-                className={`w-full bg-white rounded-lg border pl-9 pr-9 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary ${
-                  originError ? 'border-error' : 'border-tertiary-fixed'
-                }`}
-              />
-              <button 
-                type="button"
-                onClick={handleUseCurrentLocation}
-                title="Use Current Location"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors p-1"
-              >
-                <span className={`material-symbols-outlined text-sm ${originSearching ? 'animate-spin text-primary' : ''}`}>
-                  {originSearching ? 'sync' : 'near_me'}
-                </span>
-              </button>
-            </div>
-
-            {/* Suggestions dropdown */}
-            {originSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-tertiary-fixed shadow-lg z-30 max-h-48 overflow-y-auto">
-                {originSuggestions.map((item, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => handleSelectOrigin(item)}
-                    className="p-2.5 hover:bg-surface-container-low cursor-pointer border-b border-outline-variant/20 last:border-0 text-body-md text-on-surface flex items-center gap-2"
-                  >
-                    <span className="material-symbols-outlined text-on-surface-variant text-sm">location_on</span>
-                    <span className="truncate">{item.name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {originError && <p className="text-error text-label-xs mt-1">{originError}</p>}
+            <LocationAutocompleteInput
+              value={originInput}
+              onInputChange={setOriginInput}
+              onSelectLocation={handleSelectOrigin}
+              selectedLocation={origin}
+              placeholder="Enter start location..."
+              leftIcon="my_location"
+              leftIconClassName="text-primary"
+              rightSlot={(
+                <button 
+                  type="button"
+                  onClick={handleUseCurrentLocation}
+                  title="Use Current Location"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-colors p-1"
+                >
+                  <span className={`material-symbols-outlined text-sm ${originSearching ? 'animate-spin text-primary' : ''}`}>
+                    {originSearching ? 'sync' : 'near_me'}
+                  </span>
+                </button>
+              )}
+            />
           </div>
 
           {/* Swap Locations Button */}
@@ -679,37 +588,17 @@ export default function PlanRoute() {
           </div>
 
           {/* Destination Input */}
-          <div className="relative">
+          <div>
             <label className="text-label-xs font-label-xs text-on-surface-variant mb-1 block">Destination</label>
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-error text-sm">location_on</span>
-              <input 
-                type="text"
-                value={destinationInput}
-                onChange={(e) => setDestinationInput(e.target.value)}
-                placeholder="Enter destination..."
-                className={`w-full bg-white rounded-lg border pl-9 pr-9 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary ${
-                  destinationError ? 'border-error' : 'border-tertiary-fixed'
-                }`}
-              />
-            </div>
-
-            {/* Suggestions dropdown */}
-            {destinationSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-tertiary-fixed shadow-lg z-30 max-h-48 overflow-y-auto">
-                {destinationSuggestions.map((item, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => handleSelectDestination(item)}
-                    className="p-2.5 hover:bg-surface-container-low cursor-pointer border-b border-outline-variant/20 last:border-0 text-body-md text-on-surface flex items-center gap-2"
-                  >
-                    <span className="material-symbols-outlined text-on-surface-variant text-sm">location_on</span>
-                    <span className="truncate">{item.name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {destinationError && <p className="text-error text-label-xs mt-1">{destinationError}</p>}
+            <LocationAutocompleteInput
+              value={destinationInput}
+              onInputChange={setDestinationInput}
+              onSelectLocation={handleSelectDestination}
+              selectedLocation={destination}
+              placeholder="Enter destination..."
+              leftIcon="location_on"
+              leftIconClassName="text-error"
+            />
           </div>
 
           {/* Passengers Selector (1-6 Passengers) */}

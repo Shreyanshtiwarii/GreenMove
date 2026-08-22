@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import LocationAutocompleteInput from '../components/LocationAutocompleteInput';
 import {
   searchPools,
   createPool,
@@ -94,6 +95,11 @@ export default function VehiclePool() {
   // prompt or the results/empty state.
   const [routeSearch, setRouteSearch] = useState(INITIAL_ROUTE_SEARCH);
   const [routeSearchFieldErrors, setRouteSearchFieldErrors] = useState({});
+  // The real, geocoded location behind each route-search text field (or null while the
+  // text doesn't match a location the user actually picked from the suggestions). Reuses
+  // the same MapTiler-backed geocoding used on Plan Route -- see LocationAutocompleteInput.
+  const [routeOriginLocation, setRouteOriginLocation] = useState(null);
+  const [routeDestinationLocation, setRouteDestinationLocation] = useState(null);
   const [pools, setPools] = useState([]);
   const [loadingPools, setLoadingPools] = useState(false);
   const [poolsError, setPoolsError] = useState(null);
@@ -107,6 +113,10 @@ export default function VehiclePool() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
+  // Real, geocoded locations behind the Create Pool form's Start location / Destination
+  // fields, same pattern as the route search above.
+  const [formStartLocationGeo, setFormStartLocationGeo] = useState(null);
+  const [formDestinationGeo, setFormDestinationGeo] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const [createError, setCreateError] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -135,10 +145,31 @@ export default function VehiclePool() {
     }
   }, []);
 
-  const handleRouteSearchChange = (e) => {
-    const { name, value } = e.target;
-    setRouteSearch((prev) => ({ ...prev, [name]: value }));
-    setRouteSearchFieldErrors((prev) => ({ ...prev, [name]: undefined }));
+  // Free-text typing updates the visible field but invalidates whatever location was
+  // previously selected for it (unless the text still matches that location's name) --
+  // a pool search can only run against a real, geocoded place, never arbitrary text.
+  const handleRouteOriginInputChange = (value) => {
+    setRouteSearch((prev) => ({ ...prev, origin: value }));
+    setRouteOriginLocation((prev) => (prev && prev.name === value ? prev : null));
+    setRouteSearchFieldErrors((prev) => ({ ...prev, origin: undefined }));
+  };
+
+  const handleRouteDestinationInputChange = (value) => {
+    setRouteSearch((prev) => ({ ...prev, destination: value }));
+    setRouteDestinationLocation((prev) => (prev && prev.name === value ? prev : null));
+    setRouteSearchFieldErrors((prev) => ({ ...prev, destination: undefined }));
+  };
+
+  const handleRouteOriginSelect = (loc) => {
+    setRouteSearch((prev) => ({ ...prev, origin: loc.name }));
+    setRouteOriginLocation(loc);
+    setRouteSearchFieldErrors((prev) => ({ ...prev, origin: undefined }));
+  };
+
+  const handleRouteDestinationSelect = (loc) => {
+    setRouteSearch((prev) => ({ ...prev, destination: loc.name }));
+    setRouteDestinationLocation(loc);
+    setRouteSearchFieldErrors((prev) => ({ ...prev, destination: undefined }));
   };
 
   const handleRouteSearchSubmit = (e) => {
@@ -146,8 +177,16 @@ export default function VehiclePool() {
     const origin = routeSearch.origin.trim();
     const destination = routeSearch.destination.trim();
     const errors = {};
-    if (!origin) errors.origin = 'Current location / origin is required';
-    if (!destination) errors.destination = 'Destination is required';
+    if (!origin) {
+      errors.origin = 'Current location / origin is required';
+    } else if (!routeOriginLocation || routeOriginLocation.name !== origin) {
+      errors.origin = 'Please select a location from the suggestions';
+    }
+    if (!destination) {
+      errors.destination = 'Destination is required';
+    } else if (!routeDestinationLocation || routeDestinationLocation.name !== destination) {
+      errors.destination = 'Please select a location from the suggestions';
+    }
     setRouteSearchFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
     runRouteSearch(origin, destination);
@@ -189,18 +228,49 @@ export default function VehiclePool() {
     setFieldErrors((prev) => ({ ...prev, [name]: undefined }));
   };
 
+  // Start location / destination in the Create Pool form use the same real-location
+  // autocomplete as the route search above and Plan Route -- typing invalidates the
+  // previously selected location unless the text still matches it.
+  const handleFormStartLocationInputChange = (value) => {
+    setForm((prev) => ({ ...prev, startLocation: value }));
+    setFormStartLocationGeo((prev) => (prev && prev.name === value ? prev : null));
+    setFieldErrors((prev) => ({ ...prev, startLocation: undefined }));
+  };
+
+  const handleFormDestinationInputChange = (value) => {
+    setForm((prev) => ({ ...prev, destination: value }));
+    setFormDestinationGeo((prev) => (prev && prev.name === value ? prev : null));
+    setFieldErrors((prev) => ({ ...prev, destination: undefined }));
+  };
+
+  const handleFormStartLocationSelect = (loc) => {
+    setForm((prev) => ({ ...prev, startLocation: loc.name }));
+    setFormStartLocationGeo(loc);
+    setFieldErrors((prev) => ({ ...prev, startLocation: undefined }));
+  };
+
+  const handleFormDestinationSelect = (loc) => {
+    setForm((prev) => ({ ...prev, destination: loc.name }));
+    setFormDestinationGeo(loc);
+    setFieldErrors((prev) => ({ ...prev, destination: undefined }));
+  };
+
   const validateForm = () => {
     const errors = {};
     if (!form.startLocation.trim()) {
       errors.startLocation = 'Start location is required';
     } else if (form.startLocation.trim().length > 255) {
       errors.startLocation = 'Start location is too long';
+    } else if (!formStartLocationGeo || formStartLocationGeo.name !== form.startLocation.trim()) {
+      errors.startLocation = 'Please select a location from the suggestions';
     }
 
     if (!form.destination.trim()) {
       errors.destination = 'Destination is required';
     } else if (form.destination.trim().length > 255) {
       errors.destination = 'Destination is too long';
+    } else if (!formDestinationGeo || formDestinationGeo.name !== form.destination.trim()) {
+      errors.destination = 'Please select a location from the suggestions';
     }
 
     if (!form.departureTime) {
@@ -256,6 +326,8 @@ export default function VehiclePool() {
       setMyPools((prev) => (myPoolsLoaded ? [created, ...prev] : prev));
       setShowCreateModal(false);
       setForm(INITIAL_FORM);
+      setFormStartLocationGeo(null);
+      setFormDestinationGeo(null);
       setFieldErrors({});
     } catch (err) {
       setCreateError(err.message || 'Unable to create this pool. Please try again.');
@@ -268,6 +340,8 @@ export default function VehiclePool() {
     if (creating) return;
     setShowCreateModal(false);
     setForm(INITIAL_FORM);
+    setFormStartLocationGeo(null);
+    setFormDestinationGeo(null);
     setFieldErrors({});
     setCreateError(null);
   };
@@ -373,14 +447,16 @@ export default function VehiclePool() {
                 <label htmlFor="routeOrigin" className="block text-label-xs font-semibold text-on-surface mb-1">
                   Current location / Origin
                 </label>
-                <input
+                <LocationAutocompleteInput
                   id="routeOrigin"
                   name="origin"
-                  type="text"
                   value={routeSearch.origin}
-                  onChange={handleRouteSearchChange}
-                  placeholder="e.g. Indore"
-                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.origin ? 'border-error' : 'border-outline-variant'}`}
+                  onInputChange={handleRouteOriginInputChange}
+                  onSelectLocation={handleRouteOriginSelect}
+                  selectedLocation={routeOriginLocation}
+                  placeholder="e.g. Vijay Nagar, Indore"
+                  hasError={!!routeSearchFieldErrors.origin}
+                  inputClassName={`w-full bg-surface-container-low border rounded-xl pl-9 pr-3 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.origin ? 'border-error' : 'border-outline-variant'}`}
                 />
                 {routeSearchFieldErrors.origin && (
                   <p className="text-error text-label-xs mt-1">{routeSearchFieldErrors.origin}</p>
@@ -390,14 +466,16 @@ export default function VehiclePool() {
                 <label htmlFor="routeDestination" className="block text-label-xs font-semibold text-on-surface mb-1">
                   Destination
                 </label>
-                <input
+                <LocationAutocompleteInput
                   id="routeDestination"
                   name="destination"
-                  type="text"
                   value={routeSearch.destination}
-                  onChange={handleRouteSearchChange}
-                  placeholder="e.g. Bhopal"
-                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.destination ? 'border-error' : 'border-outline-variant'}`}
+                  onInputChange={handleRouteDestinationInputChange}
+                  onSelectLocation={handleRouteDestinationSelect}
+                  selectedLocation={routeDestinationLocation}
+                  placeholder="e.g. Rajwada, Indore"
+                  hasError={!!routeSearchFieldErrors.destination}
+                  inputClassName={`w-full bg-surface-container-low border rounded-xl pl-9 pr-3 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.destination ? 'border-error' : 'border-outline-variant'}`}
                 />
                 {routeSearchFieldErrors.destination && (
                   <p className="text-error text-label-xs mt-1">{routeSearchFieldErrors.destination}</p>
@@ -883,28 +961,32 @@ export default function VehiclePool() {
             <form onSubmit={handleCreateSubmit} noValidate className="space-y-4">
               <div>
                 <label htmlFor="startLocation" className="block text-label-xs font-semibold text-on-surface mb-1">Start location</label>
-                <input
+                <LocationAutocompleteInput
                   id="startLocation"
                   name="startLocation"
-                  type="text"
                   value={form.startLocation}
-                  onChange={handleFormChange}
-                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${fieldErrors.startLocation ? 'border-error' : 'border-outline-variant'}`}
+                  onInputChange={handleFormStartLocationInputChange}
+                  onSelectLocation={handleFormStartLocationSelect}
+                  selectedLocation={formStartLocationGeo}
                   placeholder="e.g. Vijay Nagar, Indore"
+                  hasError={!!fieldErrors.startLocation}
+                  inputClassName={`w-full bg-surface-container-low border rounded-xl pl-9 pr-3 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${fieldErrors.startLocation ? 'border-error' : 'border-outline-variant'}`}
                 />
                 {fieldErrors.startLocation && <p className="text-error text-label-xs mt-1">{fieldErrors.startLocation}</p>}
               </div>
 
               <div>
                 <label htmlFor="destination" className="block text-label-xs font-semibold text-on-surface mb-1">Destination</label>
-                <input
+                <LocationAutocompleteInput
                   id="destination"
                   name="destination"
-                  type="text"
                   value={form.destination}
-                  onChange={handleFormChange}
-                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${fieldErrors.destination ? 'border-error' : 'border-outline-variant'}`}
+                  onInputChange={handleFormDestinationInputChange}
+                  onSelectLocation={handleFormDestinationSelect}
+                  selectedLocation={formDestinationGeo}
                   placeholder="e.g. Rajwada, Indore"
+                  hasError={!!fieldErrors.destination}
+                  inputClassName={`w-full bg-surface-container-low border rounded-xl pl-9 pr-3 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${fieldErrors.destination ? 'border-error' : 'border-outline-variant'}`}
                 />
                 {fieldErrors.destination && <p className="text-error text-label-xs mt-1">{fieldErrors.destination}</p>}
               </div>
