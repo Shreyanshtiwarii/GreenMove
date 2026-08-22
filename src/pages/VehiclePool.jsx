@@ -622,6 +622,12 @@ export default function VehiclePool() {
     setEndErrors((prev) => ({ ...prev, [poolId]: undefined }));
     try {
       const updated = outcome === 'complete' ? await completePool(poolId) : await terminatePool(poolId);
+      
+      // Notify the Navbar (or any other listener) that savings might have changed
+      if (outcome === 'complete') {
+        window.dispatchEvent(new Event('impact-updated'));
+      }
+
       // Reflect the new status anywhere the pool is currently visible in Browse...
       setPools((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
       // ...then move it out of the active "My Pools" list (it's no longer ACTIVE)...

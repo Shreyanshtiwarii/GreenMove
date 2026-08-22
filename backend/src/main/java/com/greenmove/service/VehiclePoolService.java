@@ -118,17 +118,23 @@ public class VehiclePoolService {
     private final UserRepository userRepository;
     private final GoogleRoutesService googleRoutesService;
     private final DataSource dataSource;
+    private final com.greenmove.repository.FuelPriceRepository fuelPriceRepository;
+    private final com.greenmove.repository.EmissionFactorRepository emissionFactorRepository;
 
     public VehiclePoolService(VehiclePoolRepository poolRepository,
                                VehiclePoolMemberRepository memberRepository,
                                UserRepository userRepository,
                                GoogleRoutesService googleRoutesService,
-                               DataSource dataSource) {
+                               DataSource dataSource,
+                               com.greenmove.repository.FuelPriceRepository fuelPriceRepository,
+                               com.greenmove.repository.EmissionFactorRepository emissionFactorRepository) {
         this.poolRepository = poolRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
         this.googleRoutesService = googleRoutesService;
         this.dataSource = dataSource;
+        this.fuelPriceRepository = fuelPriceRepository;
+        this.emissionFactorRepository = emissionFactorRepository;
     }
 
     public UserEntity requireUser(String userId) {
@@ -1044,8 +1050,11 @@ public class VehiclePoolService {
             throw new PoolException(400, "You can't join a pool you created");
         }
         requireJoinable(pool);
-        if (memberRepository.findByPoolIdAndUserId(poolId, user.getId()).isPresent()) {
-            throw new PoolException(409, "You've already joined this pool");
+        java.util.Optional<VehiclePoolMemberEntity> existingOpt = memberRepository.findByPoolIdAndUserId(poolId, user.getId());
+        if (existingOpt.isPresent()) {
+            if (!"CANCELLED".equals(existingOpt.get().getStatus())) {
+                throw new PoolException(409, "You've already joined this pool");
+            }
         }
         if (pool.getAvailableSeats() == null || pool.getAvailableSeats() <= 0) {
             throw new PoolException(400, "This pool is full");
@@ -1082,23 +1091,12 @@ public class VehiclePoolService {
                 dGeom = createPoint(dLat, dLng);
             }
 
-            // Phase 2 - Passenger Join flow: phone number collected in the confirmation
-            // modal. Validated when present; omitted entirely for legacy callers that
-            // don't send one, so pre-Phase-2 join behavior is unaffected.
             phoneNumber = normalizePhoneNumber(request.getPhoneNumber());
             if (phoneNumber != null) {
                 validatePhoneNumber(phoneNumber);
             }
-
-            // NOTE: request.getClientCalculatedFare() is intentionally NEVER read here.
-            // Whatever fare the frontend displayed to the passenger is informational
-            // only; the authoritative fare is always recalculated below from the pool's
-            // own server-side data plus the just-validated coordinates.
         }
 
-        // Phase 2 - Passenger Join flow: recalculate the authoritative rate/km, this
-        // passenger's pickup->dropoff distance, and their fare entirely from validated
-        // server-side data. A frontend-supplied fare is never trusted or used.
         Double ratePerKm = computeRatePerKm(pool.getCostPerPassenger(), pool.getRouteDistanceMeters());
         Double passengerDistanceMeters = (pGeom != null && dGeom != null)
                 ? roundDistance(haversineMeters(pLat, pLng, dLat, dLng))
@@ -1108,12 +1106,15 @@ public class VehiclePoolService {
         pool.setAvailableSeats(pool.getAvailableSeats() - 1);
         poolRepository.save(pool);
 
-        VehiclePoolMemberEntity member = new VehiclePoolMemberEntity();
-        member.setId("poolmem_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8));
+        VehiclePoolMemberEntity member = existingOpt.orElseGet(VehiclePoolMemberEntity::new);
+        if (member.getId() == null) {
+            member.setId("poolmem_" + System.currentTimeMillis() + "_" + java.util.UUID.randomUUID().toString().substring(0, 8));
+        }
         member.setPoolId(poolId);
         member.setUserId(user.getId());
         member.setUserName(user.getName());
         member.setJoinedAt(LocalDateTime.now());
+        member.setStatus("PENDING");
         
         member.setPickupLocation(pLoc);
         member.setPickupLat(pLat);
@@ -1311,7 +1312,8 @@ public class VehiclePoolService {
         VehiclePoolMemberEntity membership = memberRepository.findByPoolIdAndUserId(poolId, user.getId())
                 .orElseThrow(() -> new PoolException(409, "You haven't joined this pool"));
 
-        memberRepository.delete(membership);
+        membership.setStatus("CANCELLED");
+        memberRepository.save(membership);
 
         int restored = Math.min(pool.getTotalSeats(), pool.getAvailableSeats() + 1);
         pool.setAvailableSeats(restored);
@@ -1356,6 +1358,49 @@ public class VehiclePoolService {
 
         pool.setStatus(targetStatus);
         poolRepository.save(pool);
+
+        List<VehiclePoolMemberEntity> members = memberRepository.findByPoolId(pool.getId());
+        for (VehiclePoolMemberEntity mem : members) {
+            if ("PENDING".equals(mem.getStatus())) {
+                if (STATUS_COMPLETED.equals(targetStatus)) {
+                    mem.setStatus("CREDITED");
+                    
+                    Double passengerDist = mem.getPassengerRouteDistanceMeters();
+                    if (passengerDist != null && passengerDist > 0) {
+                        UserEntity passengerUser = userRepository.findById(mem.getUserId()).orElse(null);
+                        if (passengerUser != null) {
+                            String fuelType = passengerUser.getFuelType();
+                            Double efficiency = passengerUser.getVehicleEfficiency();
+                            if (fuelType != null && efficiency != null && efficiency > 0) {
+                                com.greenmove.entity.FuelPriceEntity fuelPrice = fuelPriceRepository.findById(fuelType).orElse(null);
+                                if (fuelPrice != null) {
+                                    double distanceKm = passengerDist / 1000.0;
+                                    double fuelUsed = distanceKm / efficiency;
+                                    double soloCost = fuelUsed * fuelPrice.getPrice();
+                                    double carpoolCost = pool.getCostPerPassenger();
+                                    double saved = Math.max(0, soloCost - carpoolCost);
+                                    mem.setSoloCost(soloCost);
+                                    mem.setMoneySaved(saved);
+                                }
+                            }
+                            
+                            String emissionId = "car_" + (fuelType != null ? fuelType : "petrol"); 
+                            com.greenmove.entity.EmissionFactorEntity ef = emissionFactorRepository.findById(emissionId).orElse(null);
+                            if (ef == null && "ev_electricity".equals(fuelType)) {
+                                 ef = emissionFactorRepository.findById("ev_grid").orElse(null);
+                            }
+                            if (ef != null) {
+                                double distanceKm = passengerDist / 1000.0;
+                                mem.setCo2SavedKg(distanceKm * ef.getFactor());
+                            }
+                        }
+                    }
+                } else if (STATUS_TERMINATED.equals(targetStatus)) {
+                    mem.setStatus("CANCELLED");
+                }
+                memberRepository.save(mem);
+            }
+        }
 
         return toResponse(pool, user.getId(), false, true);
     }

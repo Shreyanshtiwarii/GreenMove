@@ -10,7 +10,6 @@ import ConfirmEmailChange from './pages/ConfirmEmailChange';
 import Dashboard from './pages/Dashboard';
 import PlanRoute from './pages/PlanRoute';
 import CompareOptions from './pages/CompareOptions';
-import JourneyHistory from './pages/JourneyHistory';
 import MyImpact from './pages/MyImpact';
 import VehiclePool from './pages/VehiclePool';
 import EVIntelligence from './pages/EVIntelligence';
@@ -112,7 +111,6 @@ function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/plan-route" element={<PlanRoute />} />
               <Route path="/compare" element={<CompareOptions />} />
-              <Route path="/history" element={<JourneyHistory />} />
               <Route path="/impact" element={<MyImpact />} />
               <Route path="/vehicle-pool" element={<VehiclePool />} />
               <Route path="/ev-intelligence" element={<EVIntelligence />} />

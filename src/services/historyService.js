@@ -1,10 +1,10 @@
-import { API_BASE_URL as BACKEND_API_BASE } from '../config';
+﻿import { API_BASE_URL as BACKEND_API_BASE } from '../config';
 const STORAGE_KEY = 'greenmove_journey_history';
 const USER_KEY_ID = 'greenmove_user_id';
 const USER_KEY_NAME = 'greenmove_user_name';
 
 /**
- * Retrieves the current authenticated application user identity.
+ * Get the current user identity from local storage if available.
  * Defaults to logged-in user 'Rahul' (usr_rahul_indore) or custom session profile.
  */
 export function getCurrentUser() {
@@ -198,35 +198,4 @@ export function saveJourney(journeyData) {
     console.error('Failed to save journey to localStorage:', err);
     return null;
   }
-}
-
-export function updateJourneyStatus(id, newStatus) {
-  if (!id || !newStatus) return false;
-  try {
-    const journeys = getJourneys();
-    const index = journeys.findIndex(j => j.id === id);
-    if (index !== -1) {
-      journeys[index].status = newStatus.toUpperCase();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(journeys));
-      return true;
-    }
-    return false;
-  } catch (err) {
-    console.error('Failed to update journey status:', err);
-    return false;
-  }
-}
-
-export function clearJourneys() {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-    return true;
-  } catch (err) {
-    console.error('Failed to clear journey history:', err);
-    return false;
-  }
-}
-
-export function clearHistory() {
-  return clearJourneys();
 }

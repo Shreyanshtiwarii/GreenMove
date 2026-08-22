@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import LogoutConfirmDialog from './LogoutConfirmDialog';
@@ -45,7 +45,6 @@ export default function Sidebar() {
     { name: 'Plan Route', path: '/plan-route', icon: 'route' },
     { name: 'Compare', path: '/compare', icon: 'compare_arrows' },
     { name: 'My Impact', path: '/impact', icon: 'eco' },
-    { name: 'History', path: '/history', icon: 'history' },
   ];
 
   const handleLogout = () => {
@@ -59,29 +58,40 @@ export default function Sidebar() {
         collapsed ? 'w-[76px]' : 'w-[260px]'
       }`}
     >
-      <div className={`mb-8 flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-md'}`}>
-        <span className="material-symbols-outlined text-primary text-3xl shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
+      <div className={`mb-6 relative flex items-center h-12 group/header ${collapsed ? 'justify-center px-2' : 'px-md justify-between'}`}>
+        
+        <div className={`flex items-center gap-3 transition-opacity duration-200 ${collapsed ? 'opacity-100 group-hover/header:opacity-0' : 'opacity-100'}`}>
+          <span className="material-symbols-outlined text-primary text-3xl shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
+          {!collapsed && (
+            <div className="overflow-hidden whitespace-nowrap">
+              <h1 className="text-headline-md font-headline-md font-bold text-primary">GreenMove</h1>
+              <p className="text-label-xs font-label-xs text-on-surface-variant">Sustainable Transit</p>
+            </div>
+          )}
+        </div>
+
         {!collapsed && (
-          <div className="overflow-hidden whitespace-nowrap">
-            <h1 className="text-headline-md font-headline-md font-bold text-primary">GreenMove</h1>
-            <p className="text-label-xs font-label-xs text-on-surface-variant">Sustainable Transit</p>
-          </div>
+          <button
+            onClick={() => setCollapsed(true)}
+            className="text-on-surface-variant hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-surface-variant cursor-pointer flex items-center justify-center shrink-0"
+            title="Close sidebar"
+            aria-label="Close sidebar"
+          >
+            <span className="material-symbols-outlined text-[20px]">menu_open</span>
+          </button>
+        )}
+
+        {collapsed && (
+          <button
+            onClick={() => setCollapsed(false)}
+            className="absolute inset-0 m-auto w-10 h-10 flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-variant rounded-lg opacity-0 group-hover/header:opacity-100 transition-opacity cursor-pointer"
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            <span className="material-symbols-outlined text-[20px]">menu</span>
+          </button>
         )}
       </div>
-
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className={`flex items-center gap-3 rounded-lg py-2 mx-2 mb-4 text-on-surface-variant hover:text-primary hover:bg-surface-variant transition-colors duration-200 cursor-pointer ${
-          collapsed ? 'justify-center px-0' : 'px-4'
-        }`}
-      >
-        <span className="material-symbols-outlined shrink-0">
-          {collapsed ? 'chevron_right' : 'chevron_left'}
-        </span>
-        {!collapsed && <span className="font-label-sm">Collapse</span>}
-      </button>
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-1">

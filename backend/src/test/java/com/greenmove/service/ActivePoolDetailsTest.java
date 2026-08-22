@@ -66,8 +66,14 @@ class ActivePoolDetailsTest {
     @BeforeEach
     void setUp() {
         vehiclePoolService = new VehiclePoolService(
-                poolRepository, memberRepository, userRepository, googleRoutesService, dataSource);
-
+            poolRepository,
+            memberRepository,
+            userRepository,
+            googleRoutesService,
+            dataSource,
+            null,
+            null
+        );
         driver = new UserEntity();
         driver.setId("user_driver");
         driver.setName("Driver Dan");

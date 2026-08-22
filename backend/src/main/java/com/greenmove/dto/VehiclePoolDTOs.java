@@ -450,3 +450,5 @@ public class VehiclePoolDTOs {
         public void setPickupTimeApproximate(boolean pickupTimeApproximate) { this.pickupTimeApproximate = pickupTimeApproximate; }
     }
 }
+
+

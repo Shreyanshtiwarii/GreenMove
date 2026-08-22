@@ -58,6 +58,12 @@ public class UserEntity {
     @Column(name = "verification_sent_at")
     private Instant verificationSentAt;
 
+    @Column(name = "vehicle_efficiency")
+    private Double vehicleEfficiency;
+
+    @Column(name = "fuel_type")
+    private String fuelType;
+
     public UserEntity() {}
 
     public UserEntity(String id, String name, String email, String role, String status, String joinedDate, String lastActive) {
@@ -134,4 +140,10 @@ public class UserEntity {
 
     public Instant getVerificationSentAt() { return verificationSentAt; }
     public void setVerificationSentAt(Instant verificationSentAt) { this.verificationSentAt = verificationSentAt; }
+
+    public Double getVehicleEfficiency() { return vehicleEfficiency; }
+    public void setVehicleEfficiency(Double vehicleEfficiency) { this.vehicleEfficiency = vehicleEfficiency; }
+
+    public String getFuelType() { return fuelType; }
+    public void setFuelType(String fuelType) { this.fuelType = fuelType; }
 }

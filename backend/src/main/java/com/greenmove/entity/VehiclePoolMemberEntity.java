@@ -82,6 +82,18 @@ public class VehiclePoolMemberEntity {
     @Column(name = "passenger_fare")
     private Double passengerFare;
 
+    @Column(name = "status", length = 50)
+    private String status = "PENDING";
+
+    @Column(name = "money_saved")
+    private Double moneySaved;
+
+    @Column(name = "solo_cost")
+    private Double soloCost;
+
+    @Column(name = "co2_saved_kg")
+    private Double co2SavedKg;
+
     public VehiclePoolMemberEntity() {}
 
     public String getId() { return id; }
@@ -125,4 +137,16 @@ public class VehiclePoolMemberEntity {
     public void setPassengerRouteDistanceMeters(Double passengerRouteDistanceMeters) { this.passengerRouteDistanceMeters = passengerRouteDistanceMeters; }
     public Double getPassengerFare() { return passengerFare; }
     public void setPassengerFare(Double passengerFare) { this.passengerFare = passengerFare; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public Double getMoneySaved() { return moneySaved; }
+    public void setMoneySaved(Double moneySaved) { this.moneySaved = moneySaved; }
+
+    public Double getSoloCost() { return soloCost; }
+    public void setSoloCost(Double soloCost) { this.soloCost = soloCost; }
+
+    public Double getCo2SavedKg() { return co2SavedKg; }
+    public void setCo2SavedKg(Double co2SavedKg) { this.co2SavedKg = co2SavedKg; }
 }
