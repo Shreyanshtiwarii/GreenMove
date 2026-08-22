@@ -166,6 +166,10 @@ export default function CompareOptions() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { longitude, latitude } = pos.coords;
+        // Log the raw device coordinates exactly as returned by getCurrentPosition, before
+        // any reverse-geocoding happens — these are the values that drive routing, never
+        // anything derived from the display address.
+        console.log('[CompareOptions] Raw geolocation coordinates:', { latitude, longitude });
         const placeName = await reverseGeocode(longitude, latitude);
         const locObj = { name: placeName, lng: longitude, lat: latitude };
         setOrigin(locObj);
