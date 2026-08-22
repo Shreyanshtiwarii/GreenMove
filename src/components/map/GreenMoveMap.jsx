@@ -171,17 +171,27 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     if (Array.isArray(evStations) && evStations.length > 0) {
       evStations.forEach(st => {
         if (typeof st.longitude === 'number' && typeof st.latitude === 'number') {
+          // Optional sequence number (Stop 1, Stop 2, ...) so a calculated multi-stop route
+          // clearly shows its Origin -> Stop 1 -> Stop 2 -> Destination segments on the map.
+          // Purely additive: callers that don't pass stopNumber render exactly as before.
+          const hasStopNumber = typeof st.stopNumber === 'number';
+          const stopBadge = hasStopNumber
+            ? `<span class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-emerald-700 border border-emerald-600 text-[10px] font-bold flex items-center justify-center shadow-sm">${st.stopNumber}</span>`
+            : '';
+
           const evEl = document.createElement('div');
-          evEl.className = 'w-8 h-8 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-110 transition-transform';
-          evEl.innerHTML = `<span class="material-symbols-outlined text-sm">ev_station</span>`;
+          evEl.className = 'relative w-8 h-8 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-110 transition-transform';
+          evEl.innerHTML = `<span class="material-symbols-outlined text-sm">ev_station</span>${stopBadge}`;
 
           const connSummary = Array.isArray(st.connectors) && st.connectors.length > 0
             ? st.connectors.map(c => `${c.powerKw || 22} kW (${c.connectorType || 'Plug'})`).join(', ')
             : 'Fast Charging Available';
 
+          const stopLabel = hasStopNumber ? `Stop ${st.stopNumber}: ` : '';
+
           const popupContent = `
             <div style="font-family: system-ui, sans-serif; padding: 4px; max-width: 220px;">
-              <div style="font-weight: bold; font-size: 13px; color: #004100; margin-bottom: 4px;">${st.name}</div>
+              <div style="font-weight: bold; font-size: 13px; color: #004100; margin-bottom: 4px;">${stopLabel}${st.name}</div>
               <div style="font-size: 11px; color: #4b5563; margin-bottom: 6px;">${st.address || st.city}</div>
               <div style="font-size: 11px; font-weight: 600; color: #059669; margin-bottom: 4px;">⚡ ${st.distanceFromRouteKm ? `${st.distanceFromRouteKm} km from route` : 'Along route'}</div>
               <div style="font-size: 10px; color: #6b7280; margin-bottom: 6px;">${connSummary}</div>

@@ -44,3 +44,41 @@ export async function getEVStationsAlongRoute(waypoints, corridorKm = 5.0) {
     };
   }
 }
+
+/**
+ * Fetches EV charging stations near a single location (e.g. the user's current location)
+ * using the existing backend /stations-near-location endpoint. Used as a fallback data
+ * source when no destination/route has been planned yet.
+ *
+ * @param {number} lat Latitude of the location
+ * @param {number} lng Longitude of the location
+ * @param {number} radiusKm Search radius in kilometers (default 10.0 km)
+ * @returns {Promise<{success: boolean, stations: Array, message?: string}>}
+ */
+export async function getEVStationsNearLocation(lat, lng, radiusKm = 10.0) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return { success: true, stations: [] };
+  }
+
+  try {
+    const url = `${BACKEND_API_BASE}/stations-near-location?lat=${lat}&lng=${lng}&radiusKm=${radiusKm}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} from EV Charging API`);
+    }
+
+    const stations = await response.json();
+    return {
+      success: true,
+      stations: Array.isArray(stations) ? stations : []
+    };
+  } catch (err) {
+    console.warn('EV Charging API (near-location) temporarily unavailable:', err.message);
+    return {
+      success: false,
+      stations: [],
+      message: 'Charging station data is temporarily unavailable.'
+    };
+  }
+}
