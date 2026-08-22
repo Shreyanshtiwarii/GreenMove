@@ -112,8 +112,15 @@ function describeStationAvailability(station) {
  * trip is not feasible, the exact unsafe segment (start position + reason) so it can be
  * highlighted on the map.
  */
-function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availableRangeKm) {
-  const usableRangeKm = Math.max(availableRangeKm - SAFETY_MARGIN_KM, 0);
+function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availableRangeKm, fullRangeKm) {
+  // The first leg is limited by whatever charge the vehicle actually has right now
+  // (availableRangeKm, which may be a partial battery %). Every leg AFTER a charging stop is
+  // limited by the vehicle's full-charge range instead (fullRangeKm) — a charging stop is a
+  // full recharge, not a top-up back to the original starting percentage. Falls back to
+  // availableRangeKm if the full-charge range wasn't supplied, so existing call sites that
+  // pass a single range still behave exactly as before.
+  const usableInitialRangeKm = Math.max(availableRangeKm - SAFETY_MARGIN_KM, 0);
+  const usableFullRangeKm = Math.max((fullRangeKm ?? availableRangeKm) - SAFETY_MARGIN_KM, 0);
 
   // Finds the nearest station beyond a given route position, reachable or not, purely to
   // explain *why* a segment is unsafe (e.g. "the next available charger is 200 km away").
@@ -125,15 +132,15 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
   };
 
   // Case 1: Destination is directly reachable on the current charge — no stop required.
-  if (totalDistanceKm <= usableRangeKm) {
+  if (totalDistanceKm <= usableInitialRangeKm) {
     return {
       feasible: true,
       needsCharging: false,
       stops: [],
-      usableRangeKm: Math.round(usableRangeKm),
-      summary: `Destination is within your available range (${Math.round(usableRangeKm)} km usable after a ${SAFETY_MARGIN_KM} km safety reserve). No charging stop required.`,
+      usableRangeKm: Math.round(usableInitialRangeKm),
+      summary: `Destination is within your available range (${Math.round(usableInitialRangeKm)} km usable after a ${SAFETY_MARGIN_KM} km safety reserve). No charging stop required.`,
       safetyStatus: 'safe',
-      safetyExplanation: `🟢 Safe: Your destination (${Math.round(totalDistanceKm)} km away) is within your estimated available range (~${Math.round(usableRangeKm)} km). No charging stop is required.`
+      safetyExplanation: `🟢 Safe: Your destination (${Math.round(totalDistanceKm)} km away) is within your estimated available range (~${Math.round(usableInitialRangeKm)} km). No charging stop is required.`
     };
   }
 
@@ -143,7 +150,13 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
   const stops = [];
   let guard = 0;
 
-  while (totalDistanceKm - currentPosKm > usableRangeKm) {
+  while (true) {
+    // Before any stop, the leg is limited by the current (possibly partial) charge; after a
+    // stop, a full recharge is assumed, so the leg is limited by the full-charge range instead.
+    const usableRangeKm = stops.length === 0 ? usableInitialRangeKm : usableFullRangeKm;
+
+    if (totalDistanceKm - currentPosKm <= usableRangeKm) break;
+
     guard += 1;
     if (guard > 12) {
       return {
@@ -192,18 +205,22 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
     const chosen = reachable[0];
     const legDistanceKm = Number((chosen.distanceAlongRouteKm - currentPosKm).toFixed(1));
     const remainingToDestinationKm = Number((totalDistanceKm - chosen.distanceAlongRouteKm).toFixed(1));
+    // Range remaining ON ARRIVAL (before charging here) is limited by THIS leg's usable range.
     const rangeOnArrivalKm = Math.max(Number((usableRangeKm - legDistanceKm).toFixed(1)), 0);
+    // Range available AFTER charging here is always a full recharge, regardless of how much
+    // charge the vehicle had for this leg.
+    const reachableRangeFromStopKm = Math.round(usableFullRangeKm);
 
     stops.push({
       ...chosen,
       stopNumber: stops.length + 1,
       legDistanceFromPrevKm: legDistanceKm,
       rangeOnArrivalKm,
-      reachableRangeFromStopKm: Math.round(usableRangeKm),
+      reachableRangeFromStopKm,
       remainingToDestinationKm,
-      reason: remainingToDestinationKm <= usableRangeKm
-        ? `Charging here restores enough range (~${Math.round(usableRangeKm)} km) to reach the destination directly.`
-        : `Farthest available station reachable on the current charge; charging here restores ~${Math.round(usableRangeKm)} km of range to continue toward the destination.`
+      reason: remainingToDestinationKm <= usableFullRangeKm
+        ? `Charging here restores enough range (~${reachableRangeFromStopKm} km) to reach the destination directly.`
+        : `Farthest available station reachable on the current charge; charging here restores ~${reachableRangeFromStopKm} km of range to continue toward the destination.`
     });
 
     currentPosKm = chosen.distanceAlongRouteKm;
@@ -224,10 +241,10 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
     feasible: true,
     needsCharging: true,
     stops,
-    usableRangeKm: Math.round(usableRangeKm),
+    usableRangeKm: Math.round(usableFullRangeKm),
     summary: `Destination is reachable after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`,
     safetyStatus: 'safe',
-    safetyExplanation: `🟢 Safe: The recommended charging sequence keeps every leg within your estimated available range (~${Math.round(usableRangeKm)} km), reaching your destination after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`
+    safetyExplanation: `🟢 Safe: The recommended charging sequence keeps every leg within your estimated available range (~${Math.round(usableFullRangeKm)} km after a recharge), reaching your destination after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`
   };
 }
 
@@ -539,18 +556,34 @@ export default function EVIntelligence() {
   // "NOT SAFE" indicators shown in the Optimal Charging Stops list.
   const stationSafetyAnalysis = useMemo(() => {
     if (!destination || !annotatedRouteStations.length) return {};
-    const usableRangeKm = Math.max(vehicleRangeKm - SAFETY_MARGIN_KM, 0);
+
+    // Mirrors planEVChargingRoute's own assumptions: before any recharge, range is limited by
+    // the vehicle's current (possibly partial) charge; after passing a recommended charging
+    // stop, a full recharge is assumed, so range is limited by the vehicle's full-charge range.
+    const usableInitialRangeKm = Math.max(currentRangeKm - SAFETY_MARGIN_KM, 0);
+    const usableFullRangeKm = Math.max(vehicleRangeKm - SAFETY_MARGIN_KM, 0);
+    const planStops = evPlan ? evPlan.stops : [];
     const map = {};
 
     annotatedRouteStations.forEach((st, idx) => {
+      // The most recent recommended charging stop at or before this station (if any), so a
+      // station further down the route is evaluated from its actual last recharge point
+      // instead of assuming the vehicle drove the whole way from the origin without stopping.
+      const priorStop = [...planStops].reverse().find((s) => s.distanceAlongRouteKm <= st.distanceAlongRouteKm);
+      const legStartKm = priorStop ? priorStop.distanceAlongRouteKm : 0;
+      const usableRangeKm = priorStop ? usableFullRangeKm : usableInitialRangeKm;
+
       const distanceFromCurrentKm = st.distanceAlongRouteKm;
-      const remainingRangeAtArrivalKm = Math.max(Number((currentRangeKm - distanceFromCurrentKm).toFixed(1)), 0);
+      const distanceFromLastChargeKm = Number((st.distanceAlongRouteKm - legStartKm).toFixed(1));
+      const remainingRangeAtArrivalKm = Math.max(Number((usableRangeKm - distanceFromLastChargeKm).toFixed(1)), 0);
+
       const next = annotatedRouteStations[idx + 1];
       const nextTargetDistanceKm = next
         ? Number((next.distanceAlongRouteKm - st.distanceAlongRouteKm).toFixed(1))
         : Number((routeGeometry.totalDistanceKm - st.distanceAlongRouteKm).toFixed(1));
       const nextTargetLabel = next ? next.name : `${destination.name} (Destination)`;
-      const nextTargetReachable = nextTargetDistanceKm <= usableRangeKm;
+      // Reaching the next target assumes a full recharge happens at THIS station.
+      const nextTargetReachable = nextTargetDistanceKm <= usableFullRangeKm;
 
       map[st.id] = {
         distanceFromCurrentKm,
@@ -562,14 +595,14 @@ export default function EVIntelligence() {
     });
 
     return map;
-  }, [destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry]);
+  }, [destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry, evPlan]);
 
   // Core EV Intelligence output: whether the destination can be reached on the available
   // range and, if not, the practical sequence of charging stops required to get there.
   const evPlan = useMemo(() => {
     if (!destination || !routeGeometry.coords.length) return null;
-    return planEVChargingRoute(routeGeometry.totalDistanceKm, annotatedRouteStations, currentRangeKm);
-  }, [destination, routeGeometry, annotatedRouteStations, currentRangeKm]);
+    return planEVChargingRoute(routeGeometry.totalDistanceKm, annotatedRouteStations, currentRangeKm, vehicleRangeKm);
+  }, [destination, routeGeometry, annotatedRouteStations, currentRangeKm, vehicleRangeKm]);
 
   // Overall feasibility now accounts for reachability via charging stops, not just direct range.
   const isFeasible = (destination && evPlan) ? evPlan.feasible : directFeasible;
@@ -610,7 +643,19 @@ export default function EVIntelligence() {
     const energyKwhNeeded = Math.max(2, (evRoute ? evRoute.distanceKmNum : requiredRangeKm) * 0.15);
     const estCostInr = Math.round(energyKwhNeeded * AVERAGE_RATE_INR_PER_KWH);
     const isRecommendedStop = !!(evPlan && evPlan.stops.some((s) => s.id === st.id));
-    const safety = stationSafetyAnalysis[st.id];
+    const recommendedStopDetail = evPlan ? evPlan.stops.find((s) => s.id === st.id) : null;
+    const baseSafety = stationSafetyAnalysis[st.id];
+    // For a station that IS the plan's recommended stop, defer to the plan's own numbers so
+    // this list always agrees with the "Recommended Charging Plan" section above it, instead
+    // of two independently-computed figures for the same real-world stop.
+    const safety = baseSafety && recommendedStopDetail
+      ? {
+          ...baseSafety,
+          remainingRangeAtArrivalKm: recommendedStopDetail.rangeOnArrivalKm,
+          nextTargetDistanceKm: recommendedStopDetail.nextTargetDistanceKm,
+          nextTargetLabel: recommendedStopDetail.nextTargetLabel
+        }
+      : baseSafety;
 
     return {
       id: st.id,
