@@ -36,6 +36,7 @@ greenmove:
   vehicle-pool:
     matching:
       max-detour-candidates: 10
+      max-spatial-distance-meters: 3000
       max-detour-distance-meters: 3000
       max-detour-percentage: 20.0
       min-route-overlap-percentage: 50.0
