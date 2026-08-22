@@ -279,14 +279,14 @@ export default function EVIntelligence() {
   const recenterMapRef = useRef(null);
 
   const [journeys, setJourneys] = useState([]);
-  const [batteryPct, setBatteryPct] = useState(45); // Dynamic user battery input slider (10% to 100%)
-  const [vehicleRangeKm, setVehicleRangeKm] = useState(340); // User-provided full-charge vehicle range (km)
+  // Fix 2 & Fix 3 (EV Intelligence Phase 1): no hardcoded battery %/range defaults. Both start
+  // completely empty; the user must type their own values before anything is calculated.
+  const [batteryPct, setBatteryPct] = useState(''); // Empty until the user enters their battery % (10–100)
+  const [vehicleRangeKm, setVehicleRangeKm] = useState(''); // Empty until the user enters their full-charge range (km)
 
   // Tracks whether the user has actually provided their vehicle range / battery level this
-  // session, so the pre-filled defaults above are never mistaken for real user input. Until
-  // both are explicitly set (alongside a real Destination), no calculated range/route/
-  // feasibility data is shown — only the underlying number inputs start pre-filled for
-  // convenience once the user does begin filling in the form.
+  // session. Until both are explicitly set with real numeric values (alongside a real
+  // Destination), no calculated range/route/feasibility data is shown.
   const [vehicleRangeTouched, setVehicleRangeTouched] = useState(false);
   const [batteryTouched, setBatteryTouched] = useState(false);
 
@@ -296,11 +296,14 @@ export default function EVIntelligence() {
   const [loadingEvRoute, setLoadingEvRoute] = useState(false);
   const [evRouteError, setEvRouteError] = useState(null);
 
-  // User Current Location State (initialized with fallback Indore coordinates)
+  // User Current Location State. No lat/lng are pre-filled — per Fix 1 (EV Intelligence Phase
+  // 1), the app must never assume a fake/default location. Real coordinates are only ever set
+  // once the user explicitly grants browser geolocation (via the location icon) or picks a
+  // location from the search suggestions.
   const [currentLocation, setCurrentLocation] = useState({
     name: 'Current Location',
-    lat: 22.7533,
-    lng: 75.8937
+    lat: null,
+    lng: null
   });
 
   // Destination State — user-provided trip destination (replaces reliance on the battery slider)
@@ -332,25 +335,12 @@ export default function EVIntelligence() {
   const [nearbyStations, setNearbyStations] = useState([]);
   const [loadingNearby, setLoadingNearby] = useState(false);
 
-  // Obtain browser geolocation on mount when available
+  // Load journey history on mount. Per Fix 1 (EV Intelligence Phase 1), browser geolocation is
+  // NEVER requested automatically here — it is only requested when the user explicitly clicks
+  // the location icon (see handleUseCurrentLocation below).
   useEffect(() => {
     const records = getJourneys();
     setJourneys(records || []);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (pos && pos.coords) {
-            setCurrentLocation({
-              name: 'Current Location',
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude
-            });
-          }
-        },
-        (err) => console.info('[EVIntelligence] Geolocation default fallback:', err.message)
-      );
-    }
   }, []);
 
   // Debounced search for Origin suggestions (mirrors PlanRoute's location autocomplete pattern)
@@ -437,11 +427,14 @@ export default function EVIntelligence() {
 
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
+      setOriginError('Geolocation is not supported by your browser. Please type your location manually.');
       return;
     }
 
     setOriginSearching(true);
+    setOriginError(null);
+    // This call is what triggers the browser's native geolocation permission prompt — it is
+    // only ever invoked here, from an explicit user click, never automatically on page load.
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
@@ -461,7 +454,13 @@ export default function EVIntelligence() {
       },
       (err) => {
         console.error('[EVIntelligence] Geolocation error:', err);
-        alert('Unable to get current location.');
+        // err.code === 1 is GeolocationPositionError.PERMISSION_DENIED - give a specific,
+        // actionable message rather than a generic failure, and leave the field fully usable
+        // (the user can still type a location manually; no fake/default location is set).
+        const message = err && err.code === 1
+          ? 'Location permission denied. Please allow location access, or type your location manually.'
+          : 'Unable to fetch your current location. Please try again or type it manually.';
+        setOriginError(message);
         setOriginSearching(false);
       }
     );
@@ -549,8 +548,12 @@ export default function EVIntelligence() {
   const routeOriginLat = currentLocation.lat;
   const routeOriginLng = currentLocation.lng;
 
-  // Calculate EV Battery Feasibility dynamically from the user-provided vehicle range input
-  const currentRangeKm = Math.round((batteryPct / 100) * vehicleRangeKm);
+  // Fix 4 (EV Intelligence Phase 1): Available Range = Full Charge Range × Battery % / 100,
+  // and it is only ever calculated once BOTH values are real, valid numbers — never a partial
+  // or fabricated result when either one is still missing/empty.
+  const hasBatteryInputs = vehicleRangeKm !== '' && !Number.isNaN(Number(vehicleRangeKm)) &&
+    batteryPct !== '' && !Number.isNaN(Number(batteryPct));
+  const currentRangeKm = hasBatteryInputs ? Math.round((Number(batteryPct) / 100) * Number(vehicleRangeKm)) : null;
   const routeDistanceKm = evRoute
     ? evRoute.distanceKmNum
     : (plannedRoute
@@ -560,8 +563,8 @@ export default function EVIntelligence() {
             : 20.0));
 
   const requiredRangeKm = Math.round(routeDistanceKm);
-  const safetyMarginKm = currentRangeKm - requiredRangeKm;
-  const directFeasible = safetyMarginKm >= SAFETY_MARGIN_KM;
+  const safetyMarginKm = hasBatteryInputs ? currentRangeKm - requiredRangeKm : null;
+  const directFeasible = safetyMarginKm != null && safetyMarginKm >= SAFETY_MARGIN_KM;
 
   // Gate for every calculated EV Intelligence output. Nothing computed (range, route
   // distance, feasibility, charging plan) is shown until all four required inputs — Origin,
@@ -572,7 +575,8 @@ export default function EVIntelligence() {
     currentLocation && typeof currentLocation.lat === 'number' && typeof currentLocation.lng === 'number' &&
     destination && typeof destination.lat === 'number' && typeof destination.lng === 'number' &&
     vehicleRangeTouched &&
-    batteryTouched
+    batteryTouched &&
+    hasBatteryInputs
   );
 
   // Project real charging stations onto the planned route (distance-along-route) so they can
@@ -1071,15 +1075,26 @@ export default function EVIntelligence() {
                       max="1000"
                       step="5"
                       value={vehicleRangeKm}
+                      placeholder="e.g. 400"
                       onChange={(e) => {
-                        const val = Number(e.target.value);
+                        const raw = e.target.value;
                         setVehicleRangeTouched(true);
+                        if (raw === '') {
+                          setVehicleRangeKm('');
+                          return;
+                        }
+                        const val = Number(raw);
                         if (Number.isNaN(val)) return;
                         setVehicleRangeKm(val);
                       }}
                       onBlur={(e) => {
-                        const val = Number(e.target.value);
-                        const clamped = Number.isNaN(val) ? 50 : Math.min(1000, Math.max(50, val));
+                        const raw = e.target.value;
+                        // Fix 2: an empty field stays empty on blur — it is never silently
+                        // replaced with a default value.
+                        if (raw === '') return;
+                        const val = Number(raw);
+                        if (Number.isNaN(val)) return;
+                        const clamped = Math.min(1000, Math.max(50, val));
                         setVehicleRangeKm(clamped);
                       }}
                       className="w-24 bg-white rounded-lg border border-tertiary-fixed px-3 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary"
@@ -1091,7 +1106,9 @@ export default function EVIntelligence() {
                 <div>
                   <div className="flex justify-between text-label-xs text-on-surface-variant mb-2">
                     <span>Current Vehicle Battery Level</span>
-                    <span className="font-bold text-primary">{currentRangeKm} km available range</span>
+                    <span className="font-bold text-primary">
+                      {hasBatteryInputs ? `${currentRangeKm} km available range` : '— km available range'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <input
@@ -1100,15 +1117,26 @@ export default function EVIntelligence() {
                       max="100"
                       step="1"
                       value={batteryPct}
+                      placeholder="e.g. 60"
                       onChange={(e) => {
-                        const val = Number(e.target.value);
+                        const raw = e.target.value;
                         setBatteryTouched(true);
+                        if (raw === '') {
+                          setBatteryPct('');
+                          return;
+                        }
+                        const val = Number(raw);
                         if (Number.isNaN(val)) return;
                         setBatteryPct(val);
                       }}
                       onBlur={(e) => {
-                        const val = Number(e.target.value);
-                        const clamped = Number.isNaN(val) ? 10 : Math.min(100, Math.max(10, val));
+                        const raw = e.target.value;
+                        // Fix 3: an empty field stays empty on blur — it is never silently
+                        // replaced with a default value.
+                        if (raw === '') return;
+                        const val = Number(raw);
+                        if (Number.isNaN(val)) return;
+                        const clamped = Math.min(100, Math.max(10, val));
                         setBatteryPct(clamped);
                       }}
                       className="w-24 bg-white rounded-lg border border-tertiary-fixed px-3 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary"
