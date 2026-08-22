@@ -462,7 +462,13 @@ export default function EVIntelligence() {
           : 'Unable to fetch your current location. Please try again or type it manually.';
         setOriginError(message);
         setOriginSearching(false);
-      }
+      },
+      // Without enableHighAccuracy, the browser is free to resolve position from
+      // coarse WiFi/IP-based signals instead of GPS, which is what was landing on
+      // the nearest highway segment instead of the device's actual point. Forcing
+      // high accuracy (with a bounded timeout and no cached fix) makes the browser
+      // use the device's real GPS/location sensor for the exact coordinates.
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
