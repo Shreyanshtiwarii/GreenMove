@@ -548,6 +548,13 @@ export default function EVIntelligence() {
       .sort((a, b) => a.distanceAlongRouteKm - b.distanceAlongRouteKm);
   }, [routeGeometry, routeStations]);
 
+  // Core EV Intelligence output: whether the destination can be reached on the available
+  // range and, if not, the practical sequence of charging stops required to get there.
+  const evPlan = useMemo(() => {
+    if (!destination || !routeGeometry.coords.length) return null;
+    return planEVChargingRoute(routeGeometry.totalDistanceKm, annotatedRouteStations, currentRangeKm, vehicleRangeKm);
+  }, [destination, routeGeometry, annotatedRouteStations, currentRangeKm, vehicleRangeKm]);
+
   // Per-station progressive range analysis: for every station along the route, calculates
   // (a) distance from the current position, (b) the estimated remaining range if the vehicle
   // arrives there without charging, (c) the distance onward to the next reachable charging
@@ -596,13 +603,6 @@ export default function EVIntelligence() {
 
     return map;
   }, [destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry, evPlan]);
-
-  // Core EV Intelligence output: whether the destination can be reached on the available
-  // range and, if not, the practical sequence of charging stops required to get there.
-  const evPlan = useMemo(() => {
-    if (!destination || !routeGeometry.coords.length) return null;
-    return planEVChargingRoute(routeGeometry.totalDistanceKm, annotatedRouteStations, currentRangeKm, vehicleRangeKm);
-  }, [destination, routeGeometry, annotatedRouteStations, currentRangeKm, vehicleRangeKm]);
 
   // Overall feasibility now accounts for reachability via charging stops, not just direct range.
   const isFeasible = (destination && evPlan) ? evPlan.feasible : directFeasible;
