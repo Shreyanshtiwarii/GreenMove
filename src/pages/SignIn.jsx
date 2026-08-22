@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import GoogleSignInButton from '../components/GoogleSignInButton';
+import { resendVerificationEmail } from '../services/authService';
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -19,6 +20,10 @@ export default function SignIn() {
   const [formError, setFormError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  // True when the last login attempt failed specifically because the account isn't verified
+  // yet - shows a "resend verification email" action instead of just an error message.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendState, setResendState] = useState('idle'); // 'idle' | 'sending' | 'sent'
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -43,6 +48,8 @@ export default function SignIn() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError(null);
+    setNeedsVerification(false);
+    setResendState('idle');
     if (!validate()) return;
 
     setLoading(true);
@@ -51,8 +58,21 @@ export default function SignIn() {
       navigate(redirectTo, { replace: true });
     } catch (err) {
       setFormError(err.message || 'Unable to sign in. Please try again.');
+      setNeedsVerification(!!err.emailNotVerified);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!form.email.trim()) return;
+    setResendState('sending');
+    try {
+      await resendVerificationEmail(form.email.trim());
+    } catch {
+      // Resend intentionally always looks successful (see backend), this is just a safety net.
+    } finally {
+      setResendState('sent');
     }
   };
 
@@ -85,6 +105,16 @@ export default function SignIn() {
         {formError && (
           <div role="alert" className="bg-error-container/20 border border-error/30 text-error p-3 rounded-xl text-label-xs mb-4">
             {formError}
+            {needsVerification && (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendState === 'sending'}
+                className="block mt-2 text-primary font-semibold hover:underline disabled:opacity-70"
+              >
+                {resendState === 'sent' ? 'Verification email sent - check your inbox' : resendState === 'sending' ? 'Sending...' : 'Resend verification email'}
+              </button>
+            )}
           </div>
         )}
 

@@ -24,6 +24,15 @@ greenmove:
     # HMAC secret used to sign user auth JWTs. MUST be overridden in production (32+ random chars).
     secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-please-32chars}
     expiration-ms: ${JWT_EXPIRATION_MS:604800000}
+  brevo:
+    # Brevo (https://app.brevo.com) transactional email API key. Backend-only - never expose to
+    # the frontend. Leave unset to run with BrevoEmailService falling back to logging instead of
+    # sending (see BrevoEmailService#isConfigured).
+    api-key: ${BREVO_API_KEY:}
+    # "From" address for verification/notification emails. Must be a verified sender or domain
+    # in your Brevo account, or sends will be rejected by Brevo.
+    sender-email: ${BREVO_SENDER_EMAIL:}
+    sender-name: ${BREVO_SENDER_NAME:GreenMove}
 
 logging:
   level:

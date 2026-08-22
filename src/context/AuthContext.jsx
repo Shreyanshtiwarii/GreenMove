@@ -6,7 +6,8 @@ import {
   loginUser,
   registerUser,
   loginWithGoogleIdToken,
-  logoutUser
+  logoutUser,
+  updateStoredUser
 } from '../services/authService';
 
 const AuthContext = createContext(null);
@@ -47,10 +48,11 @@ export function AuthProvider({ children }) {
     return loggedInUser;
   }, []);
 
+  // No session is created on signup anymore - the account must verify its email before it can
+  // log in, so this deliberately does NOT call setUser. Returns { message, email } for the
+  // SignUp page to show a "check your inbox" screen.
   const register = useCallback(async (name, email, password, confirmPassword) => {
-    const newUser = await registerUser({ name, email, password, confirmPassword });
-    setUser(newUser);
-    return newUser;
+    return registerUser({ name, email, password, confirmPassword });
   }, []);
 
   const loginWithGoogle = useCallback(async (idToken) => {
@@ -64,6 +66,14 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Patches the locally-known user (e.g. after Profile Settings saves a new name) so the
+  // navbar greeting/avatar and anywhere else `user` is read update immediately.
+  const updateUser = useCallback((partialUser) => {
+    const merged = updateStoredUser(partialUser);
+    setUser(merged);
+    return merged;
+  }, []);
+
   const value = {
     user,
     isAuthenticated: !!user,
@@ -71,7 +81,8 @@ export function AuthProvider({ children }) {
     login,
     register,
     loginWithGoogle,
-    logout
+    logout,
+    updateUser
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

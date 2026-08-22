@@ -1,18 +1,9 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
 import { useAuth } from '../context/AuthContext';
-import LogoutConfirmDialog from './LogoutConfirmDialog';
 
 export default function Header() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const firstName = user?.name ? user.name.split(' ')[0] : 'there';
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/', { replace: true });
-  };
 
   return (
     <header className="flex justify-between items-center h-16 px-md w-full bg-surface/80 backdrop-blur-md sticky top-0 z-40 border-b border-outline-variant shadow-sm transition-opacity hover:opacity-100">
@@ -28,13 +19,6 @@ export default function Header() {
           <button className="text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-variant cursor-pointer">
             <span className="material-symbols-outlined">notifications</span>
           </button>
-          <button
-            onClick={() => setShowLogoutConfirm(true)}
-            title="Log out"
-            className="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-surface-variant cursor-pointer"
-          >
-            <span className="material-symbols-outlined">logout</span>
-          </button>
           <div className="w-8 h-8 rounded-full bg-secondary-fixed overflow-hidden border border-outline-variant flex items-center justify-center text-on-secondary-container font-label-sm font-bold">
             {user?.name ? user.name.charAt(0).toUpperCase() : (
               <img 
@@ -46,14 +30,6 @@ export default function Header() {
           </div>
         </div>
       </div>
-      <LogoutConfirmDialog
-        open={showLogoutConfirm}
-        onCancel={() => setShowLogoutConfirm(false)}
-        onConfirm={() => {
-          setShowLogoutConfirm(false);
-          handleLogout();
-        }}
-      />
     </header>
   );
 }

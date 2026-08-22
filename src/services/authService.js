@@ -32,6 +32,20 @@ function persistSession(token, user) {
   }
 }
 
+/**
+ * Merges a partial user update (e.g. a new name after Profile Settings saves it) into the
+ * locally stored session, so the navbar greeting/avatar and any other reader of the stored
+ * user reflect the change immediately without requiring a re-login.
+ */
+export function updateStoredUser(partialUser) {
+  const merged = { ...getStoredUser(), ...partialUser };
+  localStorage.setItem(USER_KEY, JSON.stringify(merged));
+  if (merged?.id && merged?.name) {
+    setCurrentUser(merged.id, merged.name);
+  }
+  return merged;
+}
+
 async function parseResponse(res) {
   let body = null;
   try {
@@ -41,20 +55,56 @@ async function parseResponse(res) {
   }
   if (!res.ok) {
     const message = body?.message || 'Something went wrong. Please try again.';
-    throw new Error(message);
+    const error = new Error(message);
+    // Surfaced by the login endpoint (403) when a LOCAL account hasn't confirmed its email yet,
+    // so SignIn can offer a "resend verification" action instead of just showing the error.
+    if (body?.emailNotVerified) {
+      error.emailNotVerified = true;
+    }
+    throw error;
   }
   return body;
 }
 
+/**
+ * Signup flow: create unverified user -> send verification email -> verify -> login.
+ * No session is created here - the backend deliberately returns no JWT, since the account
+ * can't log in until the emailed link is confirmed. Returns { message, email }.
+ */
 export async function registerUser({ name, email, password, confirmPassword }) {
   const res = await fetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, password, confirmPassword })
   });
-  const data = await parseResponse(res);
-  persistSession(data.token, data.user);
-  return data.user;
+  return parseResponse(res);
+}
+
+export async function verifyEmail(token) {
+  const res = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  });
+  return parseResponse(res);
+}
+
+export async function resendVerificationEmail(email) {
+  const res = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+  return parseResponse(res);
+}
+
+export async function confirmEmailChange(token) {
+  const res = await fetch(`${API_BASE_URL}/users/me/email/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  });
+  return parseResponse(res);
 }
 
 export async function loginUser({ email, password }) {

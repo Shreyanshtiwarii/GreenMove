@@ -5,6 +5,8 @@ import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
+import VerifyEmail from './pages/VerifyEmail';
+import ConfirmEmailChange from './pages/ConfirmEmailChange';
 import Dashboard from './pages/Dashboard';
 import PlanRoute from './pages/PlanRoute';
 import CompareOptions from './pages/CompareOptions';
@@ -12,6 +14,7 @@ import JourneyHistory from './pages/JourneyHistory';
 import MyImpact from './pages/MyImpact';
 import VehiclePool from './pages/VehiclePool';
 import EVIntelligence from './pages/EVIntelligence';
+import ProfileSettings from './pages/ProfileSettings';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -60,6 +63,8 @@ function App() {
           {/* Authentication */}
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
 
           {/* Admin Login & Control Center */}
           <Route path="/admin/login" element={<AdminLogin />} />
@@ -104,14 +109,7 @@ function App() {
                   </div>
                 </div>
               } />
-              <Route path="/profile" element={
-                <div className="p-md lg:p-lg text-on-surface">
-                  <h2 className="text-headline-md font-headline-md text-primary mb-4">Profile Settings</h2>
-                  <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl shadow-sm text-body-md text-on-surface-variant">
-                    Profile settings configuration panel.
-                  </div>
-                </div>
-              } />
+              <Route path="/profile" element={<ProfileSettings />} />
             </Route>
           </Route>
 
