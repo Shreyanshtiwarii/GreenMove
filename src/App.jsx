@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar';
+import Sidebar, { SIDEBAR_COLLAPSE_KEY, SIDEBAR_COLLAPSE_EVENT } from './components/Sidebar';
 import Header from './components/Header';
 import LandingPage from './pages/LandingPage';
 import SignIn from './pages/SignIn';
@@ -39,10 +39,28 @@ import DeveloperLanding from './pages/developer/DeveloperLanding';
 import DeveloperLogin from './pages/developer/DeveloperLogin';
 
 function AppLayout() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleChange = (e) => setCollapsed(e.detail);
+    window.addEventListener(SIDEBAR_COLLAPSE_EVENT, handleChange);
+    return () => window.removeEventListener(SIDEBAR_COLLAPSE_EVENT, handleChange);
+  }, []);
+
   return (
     <div className="bg-background text-on-background font-body-md antialiased min-h-screen">
       <Sidebar />
-      <div className="md:ml-[260px] min-h-screen flex flex-col">
+      <div
+        className={`min-h-screen flex flex-col transition-[margin] duration-[250ms] ease-in-out ${
+          collapsed ? 'md:ml-[76px]' : 'md:ml-[260px]'
+        }`}
+      >
         <Header />
         <main className="flex-1 flex flex-col h-[calc(100vh-64px)] min-h-0">
           <Outlet />
