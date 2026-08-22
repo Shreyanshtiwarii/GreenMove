@@ -282,6 +282,14 @@ export default function EVIntelligence() {
   const [batteryPct, setBatteryPct] = useState(45); // Dynamic user battery input slider (10% to 100%)
   const [vehicleRangeKm, setVehicleRangeKm] = useState(340); // User-provided full-charge vehicle range (km)
 
+  // Tracks whether the user has actually provided their vehicle range / battery level this
+  // session, so the pre-filled defaults above are never mistaken for real user input. Until
+  // both are explicitly set (alongside a real Destination), no calculated range/route/
+  // feasibility data is shown — only the underlying number inputs start pre-filled for
+  // convenience once the user does begin filling in the form.
+  const [vehicleRangeTouched, setVehicleRangeTouched] = useState(false);
+  const [batteryTouched, setBatteryTouched] = useState(false);
+
   // Same-page EV Route Planner States
   const [selectedStops, setSelectedStops] = useState([]); // Array of selected station objects
   const [evRoute, setEvRoute] = useState(null);
@@ -555,6 +563,18 @@ export default function EVIntelligence() {
   const safetyMarginKm = currentRangeKm - requiredRangeKm;
   const directFeasible = safetyMarginKm >= SAFETY_MARGIN_KM;
 
+  // Gate for every calculated EV Intelligence output. Nothing computed (range, route
+  // distance, feasibility, charging plan) is shown until all four required inputs — Origin,
+  // Destination, Vehicle Full-Charge Range, and Current Battery Level — have actually been
+  // provided by the user this session, so a first-time/empty session never displays
+  // pre-existing or default calculated results.
+  const hasRequiredInputs = !!(
+    currentLocation && typeof currentLocation.lat === 'number' && typeof currentLocation.lng === 'number' &&
+    destination && typeof destination.lat === 'number' && typeof destination.lng === 'number' &&
+    vehicleRangeTouched &&
+    batteryTouched
+  );
+
   // Project real charging stations onto the planned route (distance-along-route) so they can
   // be sequenced for multi-stop range planning, using the actual route geometry from getRoute().
   const routeGeometry = useMemo(() => {
@@ -576,9 +596,9 @@ export default function EVIntelligence() {
   // Core EV Intelligence output: whether the destination can be reached on the available
   // range and, if not, the practical sequence of charging stops required to get there.
   const evPlan = useMemo(() => {
-    if (!destination || !routeGeometry.coords.length) return null;
+    if (!hasRequiredInputs || !destination || !routeGeometry.coords.length) return null;
     return planEVChargingRoute(routeGeometry.totalDistanceKm, annotatedRouteStations, currentRangeKm, vehicleRangeKm);
-  }, [destination, routeGeometry, annotatedRouteStations, currentRangeKm, vehicleRangeKm]);
+  }, [hasRequiredInputs, destination, routeGeometry, annotatedRouteStations, currentRangeKm, vehicleRangeKm]);
 
   // Per-station progressive range analysis: for every station along the route, calculates
   // (a) distance from the current position, (b) the estimated remaining range if the vehicle
@@ -587,7 +607,7 @@ export default function EVIntelligence() {
   // is actually reachable on a full recharge here. This powers the per-station "Reachable" /
   // "NOT SAFE" indicators shown in the Optimal Charging Stops list.
   const stationSafetyAnalysis = useMemo(() => {
-    if (!destination || !annotatedRouteStations.length) return {};
+    if (!hasRequiredInputs || !destination || !annotatedRouteStations.length) return {};
 
     // Mirrors planEVChargingRoute's own assumptions: before any recharge, range is limited by
     // the vehicle's current (possibly partial) charge; after passing a recommended charging
@@ -627,10 +647,12 @@ export default function EVIntelligence() {
     });
 
     return map;
-  }, [destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry, evPlan]);
+  }, [hasRequiredInputs, destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry, evPlan]);
 
-  // Overall feasibility now accounts for reachability via charging stops, not just direct range.
-  const isFeasible = (destination && evPlan) ? evPlan.feasible : directFeasible;
+  // Overall feasibility now accounts for reachability via charging stops, not just direct
+  // range — and, until the required inputs are all provided, there is no result to show at
+  // all (no fallback to the default/direct-range guess).
+  const isFeasible = (hasRequiredInputs && destination && evPlan) ? evPlan.feasible : false;
 
   // Phase 4: coordinates of the unsafe portion of the route (from the last reachable point
   // onward) so it can be drawn as a red overlay on the map when the trip is not feasible.
@@ -650,11 +672,13 @@ export default function EVIntelligence() {
     return segment.length >= 2 ? segment : null;
   }, [evPlan, routeGeometry]);
 
-  const feasibilityLabel = (destination && evPlan)
-    ? (evPlan.feasible
-        ? (evPlan.needsCharging ? `✓ Feasible via ${evPlan.stops.length} Charging Stop${evPlan.stops.length > 1 ? 's' : ''}` : '✓ Route Feasible')
-        : '⚠️ Not Feasible — No Station In Range')
-    : (directFeasible ? '✓ Route Feasible' : '⚠️ Charging Stop Recommended');
+  const feasibilityLabel = !hasRequiredInputs
+    ? 'Awaiting Route & Vehicle Details'
+    : (destination && evPlan)
+      ? (evPlan.feasible
+          ? (evPlan.needsCharging ? `✓ Feasible via ${evPlan.stops.length} Charging Stop${evPlan.stops.length > 1 ? 's' : ''}` : '✓ Route Feasible')
+          : '⚠️ Not Feasible — No Station In Range')
+      : '⏳ Calculating…';
 
   // Station list shown in "Optimal Charging Stops": real along-route stations once a
   // destination is set, otherwise real stations near the current location.
@@ -919,7 +943,11 @@ export default function EVIntelligence() {
                   <span className="material-symbols-outlined text-primary">battery_4_bar</span>
                   Battery Status & Range Feasibility
                 </h3>
-                {evRoute ? (
+                {!hasRequiredInputs ? (
+                  <p className="text-label-xs text-amber-700 mt-1">
+                    Enter your route and vehicle details to evaluate EV feasibility.
+                  </p>
+                ) : evRoute ? (
                   <p className="text-label-xs text-on-surface-variant mt-1">
                     Evaluated for calculated EV route: <strong className="text-on-surface">{evRoute.title}</strong> ({requiredRangeKm} km)
                   </p>
@@ -927,13 +955,9 @@ export default function EVIntelligence() {
                   <p className="text-label-xs text-on-surface-variant mt-1">
                     Evaluated for route: <strong className="text-on-surface">{currentLocation.name} → {destination.name}</strong> ({requiredRangeKm} km)
                   </p>
-                ) : latestJourney ? (
-                  <p className="text-label-xs text-on-surface-variant mt-1">
-                    Evaluated for route: <strong className="text-on-surface">{latestJourney.title}</strong> ({requiredRangeKm} km)
-                  </p>
                 ) : (
-                  <p className="text-label-xs text-amber-700 mt-1">
-                    Enter your origin, destination, and battery level below to calculate range feasibility.
+                  <p className="text-label-xs text-on-surface-variant mt-1">
+                    Calculating your route…
                   </p>
                 )}
               </div>
@@ -1049,6 +1073,7 @@ export default function EVIntelligence() {
                       value={vehicleRangeKm}
                       onChange={(e) => {
                         const val = Number(e.target.value);
+                        setVehicleRangeTouched(true);
                         if (Number.isNaN(val)) return;
                         setVehicleRangeKm(val);
                       }}
@@ -1077,6 +1102,7 @@ export default function EVIntelligence() {
                       value={batteryPct}
                       onChange={(e) => {
                         const val = Number(e.target.value);
+                        setBatteryTouched(true);
                         if (Number.isNaN(val)) return;
                         setBatteryPct(val);
                       }}
@@ -1093,42 +1119,58 @@ export default function EVIntelligence() {
               </div>
             </div>
 
-            {/* Range Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
-                <p className="text-label-xs text-on-surface-variant uppercase">Current Available Range</p>
-                <p className="text-headline-lg font-headline-lg text-primary font-bold">{currentRangeKm} km</p>
-              </div>
+            {hasRequiredInputs ? (
+              <>
+                {/* Range Metrics Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
+                    <p className="text-label-xs text-on-surface-variant uppercase">Current Available Range</p>
+                    <p className="text-headline-lg font-headline-lg text-primary font-bold">{currentRangeKm} km</p>
+                  </div>
 
-              <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
-                <p className="text-label-xs text-on-surface-variant uppercase">Required for Route</p>
-                <p className="text-headline-lg font-headline-lg text-on-surface font-bold">{requiredRangeKm} km</p>
-              </div>
+                  <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
+                    <p className="text-label-xs text-on-surface-variant uppercase">Required for Route</p>
+                    <p className="text-headline-lg font-headline-lg text-on-surface font-bold">{requiredRangeKm} km</p>
+                  </div>
 
-              <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
-                <p className="text-label-xs text-on-surface-variant uppercase">Safety Reserve Margin</p>
-                <p className={`text-headline-lg font-headline-lg font-bold ${
-                  safetyMarginKm >= 15 ? 'text-emerald-700' : 'text-amber-600'
-                }`}>
-                  {safetyMarginKm} km
+                  <div className="bg-surface-container-low p-4 rounded-xl border border-outline-variant/30">
+                    <p className="text-label-xs text-on-surface-variant uppercase">Safety Reserve Margin</p>
+                    <p className={`text-headline-lg font-headline-lg font-bold ${
+                      safetyMarginKm >= 15 ? 'text-emerald-700' : 'text-amber-600'
+                    }`}>
+                      {safetyMarginKm} km
+                    </p>
+                  </div>
+                </div>
+
+                {/* Battery Visual Indicator */}
+                <div className="relative w-full h-6 bg-surface-container-high rounded-full overflow-hidden border border-outline-variant/50">
+                  <div
+                    className={`h-full transition-all duration-500 rounded-r-full ${
+                      batteryPct < 25 ? 'bg-error' : batteryPct < 50 ? 'bg-amber-500' : 'bg-primary'
+                    }`}
+                    style={{ width: `${batteryPct}%` }}
+                  ></div>
+                </div>
+              </>
+            ) : (
+              /* Empty/input state: no calculated range, distance, or margin data is shown
+                 until Origin, Destination, Vehicle Full-Charge Range, and Battery Level have
+                 all been provided by the user this session. */
+              <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-6 text-center">
+                <span className="material-symbols-outlined text-on-surface-variant text-3xl mb-2 block">ev_station</span>
+                <p className="text-label-sm font-label-sm text-on-surface-variant">
+                  Enter your route and vehicle details to evaluate EV feasibility.
                 </p>
               </div>
-            </div>
-
-            {/* Battery Visual Indicator */}
-            <div className="relative w-full h-6 bg-surface-container-high rounded-full overflow-hidden border border-outline-variant/50">
-              <div
-                className={`h-full transition-all duration-500 rounded-r-full ${
-                  batteryPct < 25 ? 'bg-error' : batteryPct < 50 ? 'bg-amber-500' : 'bg-primary'
-                }`}
-                style={{ width: `${batteryPct}%` }}
-              ></div>
-            </div>
+            )}
           </section>
 
           {/* Recommended Charging Plan Section — computed from Origin, Destination, available
-              battery range, and real Open Charge Map station data along the route. */}
-          {destination && (
+              battery range, and real Open Charge Map station data along the route. Gated on
+              all required inputs (not just Destination) so no plan is shown until the user
+              has actually provided their vehicle range and battery level too. */}
+          {hasRequiredInputs && destination && (
             <section className="bg-surface-container-lowest rounded-2xl p-6 border border-tertiary-fixed shadow-sm">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-headline-sm font-headline-sm text-on-surface flex items-center gap-2">
@@ -1367,11 +1409,11 @@ export default function EVIntelligence() {
               </div>
               <div className="flex justify-between py-1 border-b border-outline-variant/20">
                 <span className="text-label-xs text-on-surface-variant">Total Route Distance</span>
-                <span className="text-label-sm font-semibold text-on-surface">{requiredRangeKm} km</span>
+                <span className="text-label-sm font-semibold text-on-surface">{hasRequiredInputs ? `${requiredRangeKm} km` : '—'}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-outline-variant/20">
                 <span className="text-label-xs text-on-surface-variant">Available EV Range</span>
-                <span className="text-label-sm font-semibold text-primary">{currentRangeKm} km ({batteryPct}%)</span>
+                <span className="text-label-sm font-semibold text-primary">{hasRequiredInputs ? `${currentRangeKm} km (${batteryPct}%)` : '—'}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-outline-variant/20">
                 <span className="text-label-xs text-on-surface-variant">Selected Charging Stops</span>
@@ -1379,12 +1421,14 @@ export default function EVIntelligence() {
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-label-xs text-on-surface-variant">Feasibility Status</span>
-                <span className={`text-label-sm font-bold ${isFeasible ? 'text-emerald-700' : 'text-amber-600'}`}>
-                  {(destination && evPlan)
-                    ? (evPlan.feasible
-                        ? (evPlan.needsCharging ? `Feasible (${evPlan.stops.length} stop${evPlan.stops.length > 1 ? 's' : ''})` : 'Safe EV Route')
-                        : 'Not Feasible')
-                    : (isFeasible ? 'Safe EV Route' : 'Charging Needed')}
+                <span className={`text-label-sm font-bold ${hasRequiredInputs ? (isFeasible ? 'text-emerald-700' : 'text-amber-600') : 'text-on-surface-variant'}`}>
+                  {!hasRequiredInputs
+                    ? 'Awaiting Input'
+                    : (destination && evPlan)
+                      ? (evPlan.feasible
+                          ? (evPlan.needsCharging ? `Feasible (${evPlan.stops.length} stop${evPlan.stops.length > 1 ? 's' : ''})` : 'Safe EV Route')
+                          : 'Not Feasible')
+                      : '⏳ Calculating…'}
                 </span>
               </div>
             </div>
