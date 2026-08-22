@@ -20,9 +20,21 @@ public class VehiclePoolDTOs {
         @jakarta.validation.constraints.Size(max = 255, message = "Start location is too long")
         private String startLocation;
 
+        @NotNull(message = "Start latitude is required")
+        private Double startLatitude;
+
+        @NotNull(message = "Start longitude is required")
+        private Double startLongitude;
+
         @NotBlank(message = "Destination is required")
         @jakarta.validation.constraints.Size(max = 255, message = "Destination is too long")
         private String destination;
+
+        @NotNull(message = "Destination latitude is required")
+        private Double destinationLatitude;
+
+        @NotNull(message = "Destination longitude is required")
+        private Double destinationLongitude;
 
         @NotNull(message = "Departure date/time is required")
         private LocalDateTime departureTime;
@@ -38,8 +50,16 @@ public class VehiclePoolDTOs {
 
         public String getStartLocation() { return startLocation; }
         public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
+        public Double getStartLatitude() { return startLatitude; }
+        public void setStartLatitude(Double startLatitude) { this.startLatitude = startLatitude; }
+        public Double getStartLongitude() { return startLongitude; }
+        public void setStartLongitude(Double startLongitude) { this.startLongitude = startLongitude; }
         public String getDestination() { return destination; }
         public void setDestination(String destination) { this.destination = destination; }
+        public Double getDestinationLatitude() { return destinationLatitude; }
+        public void setDestinationLatitude(Double destinationLatitude) { this.destinationLatitude = destinationLatitude; }
+        public Double getDestinationLongitude() { return destinationLongitude; }
+        public void setDestinationLongitude(Double destinationLongitude) { this.destinationLongitude = destinationLongitude; }
         public LocalDateTime getDepartureTime() { return departureTime; }
         public void setDepartureTime(LocalDateTime departureTime) { this.departureTime = departureTime; }
         public Integer getTotalSeats() { return totalSeats; }
@@ -48,12 +68,69 @@ public class VehiclePoolDTOs {
         public void setCostPerPassenger(Double costPerPassenger) { this.costPerPassenger = costPerPassenger; }
     }
 
+    public static class JoinPoolRequest {
+        private String pickupLocation;
+        private Double pickupLatitude;
+        private Double pickupLongitude;
+        private String dropoffLocation;
+        private Double dropoffLatitude;
+        private Double dropoffLongitude;
+        public String getPickupLocation() { return pickupLocation; }
+        public void setPickupLocation(String pickupLocation) { this.pickupLocation = pickupLocation; }
+        public Double getPickupLatitude() { return pickupLatitude; }
+        public void setPickupLatitude(Double pickupLatitude) { this.pickupLatitude = pickupLatitude; }
+        public Double getPickupLongitude() { return pickupLongitude; }
+        public void setPickupLongitude(Double pickupLongitude) { this.pickupLongitude = pickupLongitude; }
+        public String getDropoffLocation() { return dropoffLocation; }
+        public void setDropoffLocation(String dropoffLocation) { this.dropoffLocation = dropoffLocation; }
+        public Double getDropoffLatitude() { return dropoffLatitude; }
+        public void setDropoffLatitude(Double dropoffLatitude) { this.dropoffLatitude = dropoffLatitude; }
+        public Double getDropoffLongitude() { return dropoffLongitude; }
+        public void setDropoffLongitude(Double dropoffLongitude) { this.dropoffLongitude = dropoffLongitude; }
+    }
+
     public static class PoolResponse {
         private String id;
         private String creatorId;
         private String creatorName;
         private String startLocation;
+        private Double startLatitude;
+        private Double startLongitude;
         private String destination;
+        private Double destinationLatitude;
+        private Double destinationLongitude;
+        private Double routeDistanceMeters;
+        private Integer routeDurationSeconds;
+        private Double pickupDistanceMeters;
+        private Double dropoffDistanceMeters;
+        private boolean candidate;
+        private Double pickupRoutePosition;
+        private Double dropoffRoutePosition;
+        private boolean directionCompatible;
+        private Double passengerRouteDistanceMeters;
+        private Integer passengerRouteDurationSeconds;
+        private Double driverSegmentDistanceMeters;
+        private Double routeOverlapPercentage;
+        private Double originalDriverDistanceMeters;
+        private Double newDriverDistanceMeters;
+        private Double detourDistanceMeters;
+        private Double detourPercentage;
+        private Integer originalDriverDurationSeconds;
+        private Integer newDriverDurationSeconds;
+        private Integer detourDurationSeconds;
+        private boolean detourCompatible;
+        private boolean routeOverlapCompatible;
+                private boolean phase5Compatible;
+        
+        // Phase 6 Match Scoring
+        private Double matchScore;
+        private Integer matchRank;
+        private Double overlapScore;
+        private Double pickupScore;
+        private Double dropoffScore;
+        private Double detourScore;
+        private Double timeScore;
+
         private LocalDateTime departureTime;
         private Integer totalSeats;
         private Integer availableSeats;
@@ -84,8 +161,77 @@ public class VehiclePoolDTOs {
         public void setCreatorName(String creatorName) { this.creatorName = creatorName; }
         public String getStartLocation() { return startLocation; }
         public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
+        public Double getStartLatitude() { return startLatitude; }
+        public void setStartLatitude(Double startLatitude) { this.startLatitude = startLatitude; }
+        public Double getStartLongitude() { return startLongitude; }
+        public void setStartLongitude(Double startLongitude) { this.startLongitude = startLongitude; }
         public String getDestination() { return destination; }
         public void setDestination(String destination) { this.destination = destination; }
+        public Double getDestinationLatitude() { return destinationLatitude; }
+        public void setDestinationLatitude(Double destinationLatitude) { this.destinationLatitude = destinationLatitude; }
+        public Double getDestinationLongitude() { return destinationLongitude; }
+        public void setDestinationLongitude(Double destinationLongitude) { this.destinationLongitude = destinationLongitude; }
+        public Double getRouteDistanceMeters() { return routeDistanceMeters; }
+        public void setRouteDistanceMeters(Double routeDistanceMeters) { this.routeDistanceMeters = routeDistanceMeters; }
+        public Integer getRouteDurationSeconds() { return routeDurationSeconds; }
+        public void setRouteDurationSeconds(Integer routeDurationSeconds) { this.routeDurationSeconds = routeDurationSeconds; }
+        public Double getPickupDistanceMeters() { return pickupDistanceMeters; }
+        public void setPickupDistanceMeters(Double pickupDistanceMeters) { this.pickupDistanceMeters = pickupDistanceMeters; }
+        public Double getDropoffDistanceMeters() { return dropoffDistanceMeters; }
+        public void setDropoffDistanceMeters(Double dropoffDistanceMeters) { this.dropoffDistanceMeters = dropoffDistanceMeters; }
+        public boolean isCandidate() { return candidate; }
+        public void setCandidate(boolean candidate) { this.candidate = candidate; }
+        public Double getPickupRoutePosition() { return pickupRoutePosition; }
+        public void setPickupRoutePosition(Double pickupRoutePosition) { this.pickupRoutePosition = pickupRoutePosition; }
+        public Double getDropoffRoutePosition() { return dropoffRoutePosition; }
+        public void setDropoffRoutePosition(Double dropoffRoutePosition) { this.dropoffRoutePosition = dropoffRoutePosition; }
+        public boolean isDirectionCompatible() { return directionCompatible; }
+        public void setDirectionCompatible(boolean directionCompatible) { this.directionCompatible = directionCompatible; }
+        
+        public Double getPassengerRouteDistanceMeters() { return passengerRouteDistanceMeters; }
+        public void setPassengerRouteDistanceMeters(Double passengerRouteDistanceMeters) { this.passengerRouteDistanceMeters = passengerRouteDistanceMeters; }
+        public Integer getPassengerRouteDurationSeconds() { return passengerRouteDurationSeconds; }
+        public void setPassengerRouteDurationSeconds(Integer passengerRouteDurationSeconds) { this.passengerRouteDurationSeconds = passengerRouteDurationSeconds; }
+        public Double getDriverSegmentDistanceMeters() { return driverSegmentDistanceMeters; }
+        public void setDriverSegmentDistanceMeters(Double driverSegmentDistanceMeters) { this.driverSegmentDistanceMeters = driverSegmentDistanceMeters; }
+        public Double getRouteOverlapPercentage() { return routeOverlapPercentage; }
+        public void setRouteOverlapPercentage(Double routeOverlapPercentage) { this.routeOverlapPercentage = routeOverlapPercentage; }
+        public Double getOriginalDriverDistanceMeters() { return originalDriverDistanceMeters; }
+        public void setOriginalDriverDistanceMeters(Double originalDriverDistanceMeters) { this.originalDriverDistanceMeters = originalDriverDistanceMeters; }
+        public Double getNewDriverDistanceMeters() { return newDriverDistanceMeters; }
+        public void setNewDriverDistanceMeters(Double newDriverDistanceMeters) { this.newDriverDistanceMeters = newDriverDistanceMeters; }
+        public Double getDetourDistanceMeters() { return detourDistanceMeters; }
+        public void setDetourDistanceMeters(Double detourDistanceMeters) { this.detourDistanceMeters = detourDistanceMeters; }
+        public Double getDetourPercentage() { return detourPercentage; }
+        public void setDetourPercentage(Double detourPercentage) { this.detourPercentage = detourPercentage; }
+        public Integer getOriginalDriverDurationSeconds() { return originalDriverDurationSeconds; }
+        public void setOriginalDriverDurationSeconds(Integer originalDriverDurationSeconds) { this.originalDriverDurationSeconds = originalDriverDurationSeconds; }
+        public Integer getNewDriverDurationSeconds() { return newDriverDurationSeconds; }
+        public void setNewDriverDurationSeconds(Integer newDriverDurationSeconds) { this.newDriverDurationSeconds = newDriverDurationSeconds; }
+        public Integer getDetourDurationSeconds() { return detourDurationSeconds; }
+        public void setDetourDurationSeconds(Integer detourDurationSeconds) { this.detourDurationSeconds = detourDurationSeconds; }
+        public boolean isDetourCompatible() { return detourCompatible; }
+        public void setDetourCompatible(boolean detourCompatible) { this.detourCompatible = detourCompatible; }
+        public boolean isRouteOverlapCompatible() { return routeOverlapCompatible; }
+        public void setRouteOverlapCompatible(boolean routeOverlapCompatible) { this.routeOverlapCompatible = routeOverlapCompatible; }
+        public boolean isPhase5Compatible() { return phase5Compatible; }
+        public void setPhase5Compatible(boolean phase5Compatible) { this.phase5Compatible = phase5Compatible; }
+        
+        public Double getMatchScore() { return matchScore; }
+        public void setMatchScore(Double matchScore) { this.matchScore = matchScore; }
+        public Integer getMatchRank() { return matchRank; }
+        public void setMatchRank(Integer matchRank) { this.matchRank = matchRank; }
+        public Double getOverlapScore() { return overlapScore; }
+        public void setOverlapScore(Double overlapScore) { this.overlapScore = overlapScore; }
+        public Double getPickupScore() { return pickupScore; }
+        public void setPickupScore(Double pickupScore) { this.pickupScore = pickupScore; }
+        public Double getDropoffScore() { return dropoffScore; }
+        public void setDropoffScore(Double dropoffScore) { this.dropoffScore = dropoffScore; }
+        public Double getDetourScore() { return detourScore; }
+        public void setDetourScore(Double detourScore) { this.detourScore = detourScore; }
+        public Double getTimeScore() { return timeScore; }
+        public void setTimeScore(Double timeScore) { this.timeScore = timeScore; }
+
         public LocalDateTime getDepartureTime() { return departureTime; }
         public void setDepartureTime(LocalDateTime departureTime) { this.departureTime = departureTime; }
         public Integer getTotalSeats() { return totalSeats; }

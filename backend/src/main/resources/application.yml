@@ -33,6 +33,20 @@ greenmove:
     # in your Brevo account, or sends will be rejected by Brevo.
     sender-email: ${BREVO_SENDER_EMAIL:}
     sender-name: ${BREVO_SENDER_NAME:GreenMove}
+  vehicle-pool:
+    matching:
+      max-detour-candidates: 10
+      max-detour-distance-meters: 3000
+      max-detour-percentage: 20.0
+      min-route-overlap-percentage: 50.0
+      route-overlap-tolerance-meters: 100
+      scoring:
+        overlap-weight: 0.35
+        pickup-weight: 0.20
+        dropoff-weight: 0.15
+        detour-weight: 0.15
+        time-weight: 0.15
+        max-departure-time-difference-minutes: 30
 
 logging:
   level:
@@ -41,6 +55,12 @@ logging:
 
 spring:
   datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/postgres}}
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:}}

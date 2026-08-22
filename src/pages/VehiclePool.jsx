@@ -142,13 +142,20 @@ export default function VehiclePool() {
   const [endingPoolId, setEndingPoolId] = useState(null);
   const [endErrors, setEndErrors] = useState({});
 
-  const runRouteSearch = useCallback(async (origin, destination) => {
+  const runRouteSearch = useCallback(async (origin, destination, originLoc, destinationLoc) => {
     setLoadingPools(true);
     setPoolsError(null);
     setHasSearched(true);
     setSearchedRoute({ origin, destination });
     try {
-      const data = await searchPools(origin, destination);
+      const data = await searchPools(
+        origin,
+        destination,
+        originLoc?.lat ?? null,       // latitude
+        originLoc?.lng ?? null,       // longitude
+        destinationLoc?.lat ?? null,
+        destinationLoc?.lng ?? null
+      );
       setPools(Array.isArray(data) ? data : []);
     } catch (err) {
       setPoolsError(err.message || 'Unable to search vehicle pools right now.');
@@ -201,7 +208,7 @@ export default function VehiclePool() {
     }
     setRouteSearchFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
-    runRouteSearch(origin, destination);
+    runRouteSearch(origin, destination, routeOriginLocation, routeDestinationLocation);
   };
 
   const loadMyPools = useCallback(async () => {
@@ -343,7 +350,11 @@ export default function VehiclePool() {
     try {
       const created = await createPool({
         startLocation: form.startLocation.trim(),
+        startLatitude: formStartLocationGeo.lat,
+        startLongitude: formStartLocationGeo.lng,
         destination: form.destination.trim(),
+        destinationLatitude: formDestinationGeo.lat,
+        destinationLongitude: formDestinationGeo.lng,
         departureTime: form.departureTime,
         totalSeats: Number(form.totalSeats),
         costPerPassenger: Number(form.costPerPassenger)

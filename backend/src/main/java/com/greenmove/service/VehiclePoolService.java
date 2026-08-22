@@ -1,5 +1,10 @@
 package com.greenmove.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import javax.sql.DataSource;
+import com.greenmove.dto.RoutingRequest;
+import com.greenmove.dto.RoutingResponse;
+import com.greenmove.dto.RoutingResponse.RouteDTO;
 import com.greenmove.dto.VehiclePoolDTOs.CreatePoolRequest;
 import com.greenmove.dto.VehiclePoolDTOs.PoolMemberResponse;
 import com.greenmove.dto.VehiclePoolDTOs.PoolResponse;
@@ -9,10 +14,17 @@ import com.greenmove.entity.VehiclePoolMemberEntity;
 import com.greenmove.repository.UserRepository;
 import com.greenmove.repository.VehiclePoolMemberRepository;
 import com.greenmove.repository.VehiclePoolRepository;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
+import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,16 +61,63 @@ public class VehiclePoolService {
         public int getStatus() { return status; }
     }
 
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-detour-candidates:10}")
+    private int maxDetourCandidates;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-detour-distance-meters:3000}")
+    private double maxDetourDistanceMeters;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-detour-percentage:20.0}")
+    private double maxDetourPercentage;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.min-route-overlap-percentage:50.0}")
+    private double minRouteOverlapPercentage;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.route-overlap-tolerance-meters:100}")
+    private double routeOverlapToleranceMeters;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.overlap-weight:0.35}")
+    private double overlapWeight;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.pickup-weight:0.20}")
+    private double pickupWeight;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.dropoff-weight:0.15}")
+    private double dropoffWeight;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.detour-weight:0.15}")
+    private double detourWeight;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.time-weight:0.15}")
+    private double timeWeight;
+
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.scoring.max-departure-time-difference-minutes:30}")
+    private double maxDepartureTimeDifferenceMinutes;
+
+    @jakarta.annotation.PostConstruct
+    public void validateScoringWeights() {
+        double sum = overlapWeight + pickupWeight + dropoffWeight + detourWeight + timeWeight;
+        if (Math.abs(sum - 1.0) > 0.0001) {
+            throw new IllegalStateException("Vehicle pool scoring weights must sum to exactly 1.0. Found: " + sum);
+        }
+    }
+
     private final VehiclePoolRepository poolRepository;
     private final VehiclePoolMemberRepository memberRepository;
     private final UserRepository userRepository;
+    private final GoogleRoutesService googleRoutesService;
+    private final DataSource dataSource;
 
     public VehiclePoolService(VehiclePoolRepository poolRepository,
                                VehiclePoolMemberRepository memberRepository,
-                               UserRepository userRepository) {
+                               UserRepository userRepository,
+                               GoogleRoutesService googleRoutesService,
+                               DataSource dataSource) {
         this.poolRepository = poolRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
+        this.googleRoutesService = googleRoutesService;
+        this.dataSource = dataSource;
     }
 
     public UserEntity requireUser(String userId) {
@@ -132,6 +191,540 @@ public class VehiclePoolService {
                 .filter(p -> p.getDepartureTime() != null && p.getDepartureTime().isAfter(now))
                 .map(p -> toResponse(p, currentUserId, joinedPoolIds.contains(p.getId()), false))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Phase 3 – PostGIS spatial candidate search.
+     *
+     * Finds ACTIVE Vehicle Pools whose stored route_geom (a road-aligned LineString,
+     * SRID 4326) lies within MAX_ROUTE_PROXIMITY_METERS of BOTH the passenger's
+     * pickup point AND the passenger's dropoff point.  All filtering is done in
+     * PostgreSQL/PostGIS via ST_DWithin so the existing GiST index on route_geom is used.
+     *
+     *
+     * Falls back to the legacy text-based searchPools when coordinates are absent, so
+     * existing callers that only send origin/destination strings keep working unchanged.
+     */
+    static final double MAX_ROUTE_PROXIMITY_METERS = 500.0;
+
+    private static class CandidatePair {
+        VehiclePoolEntity entity;
+        PoolResponse response;
+        CandidatePair(VehiclePoolEntity entity, PoolResponse response) {
+            this.entity = entity;
+            this.response = response;
+        }
+    }
+
+    /** Minimum distance (metres) below which pickup and dropoff are considered the same location. */
+    private static final double MIN_PICKUP_DROPOFF_SEPARATION_METERS = 50.0;
+
+    @Transactional(readOnly = true)
+    public List<PoolResponse> searchPoolsSpatial(
+            String currentUserId,
+            String originName,
+            Double originLatitude,
+            Double originLongitude,
+            String destinationName,
+            Double destinationLatitude,
+            Double destinationLongitude) {
+
+        // If no coordinates are provided at all, fall back to the legacy text-match search
+        // so existing callers (and existing tests) are unaffected.
+        boolean hasCoordinates =
+                originLatitude != null || originLongitude != null
+                        || destinationLatitude != null || destinationLongitude != null;
+
+        if (!hasCoordinates) {
+            return searchPools(currentUserId, originName, destinationName);
+        }
+
+        // ---- Coordinate validation ----
+        validateCoordinateBounds(originLatitude, originLongitude, "pickup");
+        validateCoordinateBounds(destinationLatitude, destinationLongitude, "dropoff");
+
+        // ---- Same-location guard (geographic tolerance, no DB round-trip needed) ----
+        double separationMeters = haversineMeters(
+                originLatitude, originLongitude,
+                destinationLatitude, destinationLongitude);
+        if (separationMeters < MIN_PICKUP_DROPOFF_SEPARATION_METERS) {
+            throw new PoolException(400,
+                    "Pickup and dropoff locations are effectively the same (within "
+                            + (int) MIN_PICKUP_DROPOFF_SEPARATION_METERS + " m). "
+                            + "Please choose distinct locations.");
+        }
+
+        // ---- PostGIS candidate query (indexed, done in DB) ----
+        LocalDateTime now = LocalDateTime.now();
+        List<VehiclePoolRepository.SpatialCandidateProjection> projections;
+        boolean useFallback = false;
+        try {
+            projections = poolRepository.findSpatialCandidates(
+                    originLatitude, originLongitude,
+                    destinationLatitude, destinationLongitude,
+                    MAX_ROUTE_PROXIMITY_METERS,
+                    now);
+        } catch (Exception e) {
+            if (isH2Database()) {
+                System.err.println("PostgreSQL native spatial query failed. Falling back to Java/JTS in-memory search: " + e.getMessage());
+                projections = List.of();
+                useFallback = true;
+            } else {
+                System.err.println("Database spatial query failed in production PostgreSQL environment: " + e.getMessage());
+                throw new PoolException(500, "Database spatial query failed. Please verify PostGIS extensions and indexes.");
+            }
+        }
+
+        List<CandidatePair> phase4Pairs;
+        if (useFallback) {
+            List<VehiclePoolEntity> activePools = poolRepository
+                    .findByStatusAndAvailableSeatsGreaterThanOrderByDepartureTimeAsc(STATUS_ACTIVE, 0);
+            Set<String> joinedPoolIds = joinedPoolIdsFor(currentUserId);
+            phase4Pairs = activePools.stream()
+                    .filter(p -> p.getRouteGeom() != null)
+                    .filter(p -> p.getDepartureTime() != null && p.getDepartureTime().isAfter(now))
+                    .map(p -> {
+                        if (p.getRouteGeom().getNumPoints() < 2) {
+                            return null;
+                        }
+                        double pickupDist = distancePointToLineStringMeters(originLatitude, originLongitude, p.getRouteGeom());
+                        double dropoffDist = distancePointToLineStringMeters(destinationLatitude, destinationLongitude, p.getRouteGeom());
+                        if (pickupDist <= MAX_ROUTE_PROXIMITY_METERS && dropoffDist <= MAX_ROUTE_PROXIMITY_METERS) {
+                            Point pickupPt = createPoint(originLatitude, originLongitude);
+                            Point dropoffPt = createPoint(destinationLatitude, destinationLongitude);
+                            double pickupPos = locatePointOnLineString(pickupPt, p.getRouteGeom());
+                            double dropoffPos = locatePointOnLineString(dropoffPt, p.getRouteGeom());
+                            
+                            // Direction compatibility check
+                            if (pickupPos < dropoffPos && Math.abs(pickupPos - dropoffPos) >= 0.000001) {
+                                PoolResponse r = toResponse(p, currentUserId, joinedPoolIds.contains(p.getId()), false);
+                                r.setPickupDistanceMeters(roundDistance(pickupDist));
+                                r.setDropoffDistanceMeters(roundDistance(dropoffDist));
+                                r.setPickupRoutePosition(pickupPos);
+                                r.setDropoffRoutePosition(dropoffPos);
+                                r.setDirectionCompatible(true);
+                                r.setCandidate(true);
+                                return new CandidatePair(p, r);
+                            }
+                        }
+                        return null;
+                    })
+                    .filter(r -> r != null)
+                    .collect(Collectors.toList());
+        } else {
+            if (projections.isEmpty()) {
+                return List.of();
+            }
+
+            // Fetch full entities for the matching IDs (small candidate list)
+            List<String> candidateIds = projections.stream()
+                    .map(VehiclePoolRepository.SpatialCandidateProjection::getPoolId)
+                    .collect(Collectors.toList());
+
+            Map<String, VehiclePoolEntity> entityMap = poolRepository.findAllById(candidateIds)
+                    .stream()
+                    .collect(Collectors.toMap(VehiclePoolEntity::getId, e -> e));
+
+            Map<String, VehiclePoolRepository.SpatialCandidateProjection> distanceMap =
+                    projections.stream()
+                            .collect(Collectors.toMap(
+                                    VehiclePoolRepository.SpatialCandidateProjection::getPoolId,
+                                    p -> p));
+
+            Set<String> joinedPoolIds = joinedPoolIdsFor(currentUserId);
+
+            phase4Pairs = candidateIds.stream()
+                .map(entityMap::get)
+                .filter(e -> e != null)
+                .map(e -> {
+                    VehiclePoolRepository.SpatialCandidateProjection dist = distanceMap.get(e.getId());
+                    if (dist != null) {
+                        Double pickupPos = dist.getPickupRoutePosition();
+                        Double dropoffPos = dist.getDropoffRoutePosition();
+                        if (pickupPos != null && dropoffPos != null) {
+                            // Direction compatibility check
+                            if (pickupPos < dropoffPos && Math.abs(pickupPos - dropoffPos) >= 0.000001) {
+                                PoolResponse r = toResponse(e, currentUserId, joinedPoolIds.contains(e.getId()), false);
+                                r.setPickupDistanceMeters(roundDistance(dist.getPickupDistanceMeters()));
+                                r.setDropoffDistanceMeters(roundDistance(dist.getDropoffDistanceMeters()));
+                                r.setPickupRoutePosition(pickupPos);
+                                r.setDropoffRoutePosition(dropoffPos);
+                                r.setDirectionCompatible(true);
+                                r.setCandidate(true);
+                                return new CandidatePair(e, r);
+                            }
+                        }
+                    }
+                    return null;
+                })
+                .filter(r -> r != null)
+                .collect(Collectors.toList());
+        }
+
+        if (phase4Pairs.isEmpty()) {
+            return List.of();
+        }
+        
+        return processPhase5(phase4Pairs, originLatitude, originLongitude, destinationLatitude, destinationLongitude);
+    }
+    
+    private List<PoolResponse> processPhase5(List<CandidatePair> candidates, 
+                                             Double pickupLat, Double pickupLng, 
+                                             Double dropoffLat, Double dropoffLng) {
+        
+        candidates = candidates.stream().limit(maxDetourCandidates).collect(Collectors.toList());
+        
+        // 1. Passenger route C -> D
+        RoutingRequest passReq = new RoutingRequest(
+            new RoutingRequest.Coordinate(pickupLat, pickupLng),
+            new RoutingRequest.Coordinate(dropoffLat, dropoffLng),
+            "DRIVING", false);
+            
+        RoutingResponse passResp = googleRoutesService.computeTrafficRoutes(passReq);
+        if (!passResp.isSuccess() || passResp.getPrimaryRoute() == null || passResp.getPrimaryRoute().getGeometry() == null) {
+            throw new PoolException(500, "Passenger route calculation failed. Unable to evaluate candidate detours.");
+        }
+        
+        RouteDTO passRoute = passResp.getPrimaryRoute();
+        Double passDistMeters = passRoute.getDistanceMeters();
+        Integer passDurationSecs = passRoute.getDurationSeconds() != null ? passRoute.getDurationSeconds().intValue() : 0;
+        
+        if (passDistMeters == null || passDistMeters <= 0) {
+            throw new PoolException(500, "Passenger route calculation returned invalid distance.");
+        }
+        
+        LineString passengerLineString = buildLineStringFromRouteDTO(passRoute);
+        if (passengerLineString == null || passengerLineString.getNumPoints() < 2) {
+            throw new PoolException(500, "Passenger route geometry missing or invalid.");
+        }
+        
+        org.locationtech.jts.io.WKTReader wktReader = new org.locationtech.jts.io.WKTReader(new GeometryFactory(new PrecisionModel(), 4326));
+        
+        List<PoolResponse> finalResults = new ArrayList<>();
+        
+        for (CandidatePair pair : candidates) {
+            VehiclePoolEntity entity = pair.entity;
+            PoolResponse res = pair.response;
+            
+            res.setPassengerRouteDistanceMeters(passDistMeters);
+            res.setPassengerRouteDurationSeconds(passDurationSecs);
+            
+            try {
+                // 2. Driver Segment
+                double startFrac = res.getPickupRoutePosition();
+                double endFrac = res.getDropoffRoutePosition();
+                
+                Double segmentDist = 0.0;
+                LineString driverSegmentGeom = null;
+                
+                if (isH2Database()) {
+                    LengthIndexedLine indexedLine = new LengthIndexedLine(entity.getRouteGeom());
+                    double len = entity.getRouteGeom().getLength();
+                    org.locationtech.jts.geom.Geometry ext = indexedLine.extractLine(startFrac * len, endFrac * len);
+                    if (ext instanceof LineString) {
+                        driverSegmentGeom = (LineString) ext;
+                        segmentDist = calculateHaversineLength(driverSegmentGeom);
+                    }
+                } else {
+                    VehiclePoolRepository.SegmentProjection segProj = poolRepository.getDriverSegment(entity.getId(), startFrac, endFrac);
+                    if (segProj != null && segProj.getSegmentGeomWkt() != null) {
+                        segmentDist = segProj.getSegmentDistanceMeters();
+                        driverSegmentGeom = (LineString) wktReader.read(segProj.getSegmentGeomWkt());
+                    }
+                }
+                
+                if (driverSegmentGeom == null) {
+                    continue; // Failed to extract segment
+                }
+                
+                res.setDriverSegmentDistanceMeters(Math.round(segmentDist * 10.0) / 10.0);
+                
+                // 3. Overlap
+                double overlapPct = calculateLengthBasedOverlap(passengerLineString, driverSegmentGeom, routeOverlapToleranceMeters);
+                res.setRouteOverlapPercentage(Math.round(overlapPct * 10.0) / 10.0);
+                
+                boolean overlapCompatible = overlapPct >= minRouteOverlapPercentage;
+                res.setRouteOverlapCompatible(overlapCompatible);
+                
+                if (!overlapCompatible) {
+                    res.setPhase5Compatible(false);
+                    finalResults.add(res);
+                    continue;
+                }
+                
+                // 4. Detour
+                Double origDist = entity.getRouteDistanceMeters();
+                Integer origDur = entity.getRouteDurationSeconds() != null ? entity.getRouteDurationSeconds() : 0;
+                
+                res.setOriginalDriverDistanceMeters(origDist);
+                res.setOriginalDriverDurationSeconds(origDur);
+                
+                // A -> C
+                Double acDist = 0.0;
+                Integer acDur = 0;
+                if (haversineMeters(entity.getStartLat(), entity.getStartLng(), pickupLat, pickupLng) > 50) {
+                    RoutingRequest acReq = new RoutingRequest(
+                        new RoutingRequest.Coordinate(entity.getStartLat(), entity.getStartLng()),
+                        new RoutingRequest.Coordinate(pickupLat, pickupLng), "DRIVING", false);
+                    RoutingResponse acResp = googleRoutesService.computeTrafficRoutes(acReq);
+                    if (acResp.isSuccess() && acResp.getPrimaryRoute() != null) {
+                        acDist = acResp.getPrimaryRoute().getDistanceMeters();
+                        acDur = acResp.getPrimaryRoute().getDurationSeconds() != null ? acResp.getPrimaryRoute().getDurationSeconds().intValue() : 0;
+                    } else {
+                        System.err.println("Failed A->C route for pool " + entity.getId());
+                        continue;
+                    }
+                }
+                
+                // D -> B
+                Double dbDist = 0.0;
+                Integer dbDur = 0;
+                if (haversineMeters(dropoffLat, dropoffLng, entity.getDestinationLat(), entity.getDestinationLng()) > 50) {
+                    RoutingRequest dbReq = new RoutingRequest(
+                        new RoutingRequest.Coordinate(dropoffLat, dropoffLng),
+                        new RoutingRequest.Coordinate(entity.getDestinationLat(), entity.getDestinationLng()), "DRIVING", false);
+                    RoutingResponse dbResp = googleRoutesService.computeTrafficRoutes(dbReq);
+                    if (dbResp.isSuccess() && dbResp.getPrimaryRoute() != null) {
+                        dbDist = dbResp.getPrimaryRoute().getDistanceMeters();
+                        dbDur = dbResp.getPrimaryRoute().getDurationSeconds() != null ? dbResp.getPrimaryRoute().getDurationSeconds().intValue() : 0;
+                    } else {
+                        System.err.println("Failed D->B route for pool " + entity.getId());
+                        continue;
+                    }
+                }
+                
+                Double newDist = acDist + passDistMeters + dbDist;
+                Integer newDur = acDur + passDurationSecs + dbDur;
+                
+                res.setNewDriverDistanceMeters(newDist);
+                res.setNewDriverDurationSeconds(newDur);
+                
+                double detourDist = Math.max(0.0, newDist - origDist);
+                double detourPct = origDist > 0 ? (detourDist / origDist) * 100.0 : 0.0;
+                int detourDur = Math.max(0, newDur - origDur);
+                
+                res.setDetourDistanceMeters(Math.round(detourDist * 10.0) / 10.0);
+                res.setDetourPercentage(Math.round(detourPct * 10.0) / 10.0);
+                res.setDetourDurationSeconds(detourDur);
+                
+                boolean detourComp = detourDist <= maxDetourDistanceMeters && detourPct <= maxDetourPercentage;
+                res.setDetourCompatible(detourComp);
+                
+                res.setPhase5Compatible(overlapCompatible && detourComp);
+                finalResults.add(res);
+                
+            } catch (Exception e) {
+                System.err.println("Error evaluating phase 5 for candidate " + entity.getId() + ": " + e.getMessage());
+            }
+        }
+        
+        processPhase6(finalResults);
+        return finalResults;
+    }
+    
+    private LineString buildLineStringFromRouteDTO(RouteDTO route) {
+        if (route.getGeometry() == null || !(route.getGeometry() instanceof Map)) return null;
+        Map<?, ?> geomMap = (Map<?, ?>) route.getGeometry();
+        if (!geomMap.containsKey("coordinates")) return null;
+        Object coordsObj = geomMap.get("coordinates");
+        if (coordsObj instanceof List) {
+            List<?> coordsList = (List<?>) coordsObj;
+            Coordinate[] jtsCoords = new Coordinate[coordsList.size()];
+            for (int i = 0; i < coordsList.size(); i++) {
+                Object ptObj = coordsList.get(i);
+                if (ptObj instanceof double[]) {
+                    double[] pt = (double[]) ptObj;
+                    jtsCoords[i] = new Coordinate(pt[0], pt[1]);
+                } else if (ptObj instanceof List) {
+                    List<?> pt = (List<?>) ptObj;
+                    jtsCoords[i] = new Coordinate(((Number)pt.get(0)).doubleValue(), ((Number)pt.get(1)).doubleValue());
+                }
+            }
+            if (jtsCoords.length >= 2) {
+                return new GeometryFactory(new PrecisionModel(), 4326).createLineString(jtsCoords);
+            }
+        }
+        return null;
+    }
+    
+    private double calculateHaversineLength(LineString ls) {
+        double dist = 0.0;
+        Coordinate[] coords = ls.getCoordinates();
+        for (int i = 0; i < coords.length - 1; i++) {
+            dist += haversineMeters(coords[i].y, coords[i].x, coords[i+1].y, coords[i+1].x);
+        }
+        return dist;
+    }
+    
+    private double clampScore(double score) {
+        if (Double.isNaN(score) || Double.isInfinite(score)) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(100.0, score));
+    }
+
+    private double normalizeInverseDistance(Double distance, double maxDistance) {
+        if (distance == null || Double.isNaN(distance) || Double.isInfinite(distance)) return 0.0;
+        if (distance >= maxDistance) return 0.0;
+        if (distance <= 0.0) return 100.0;
+        return clampScore(100.0 * (1.0 - (distance / maxDistance)));
+    }
+
+    private double normalizeInversePercentage(Double percentage, double maxPercentage) {
+        if (percentage == null || Double.isNaN(percentage) || Double.isInfinite(percentage)) return 0.0;
+        if (percentage >= maxPercentage) return 0.0;
+        if (percentage <= 0.0) return 100.0;
+        return clampScore(100.0 * (1.0 - (percentage / maxPercentage)));
+    }
+
+    private void processPhase6(List<PoolResponse> phase5Results) {
+        phase5Results.removeIf(res -> !res.isPhase5Compatible());
+        if (phase5Results.isEmpty()) {
+            return;
+        }
+        
+        for (PoolResponse res : phase5Results) {
+            double oScore = clampScore(res.getRouteOverlapPercentage() != null ? res.getRouteOverlapPercentage() : 0.0);
+            res.setOverlapScore(Math.round(oScore * 10.0) / 10.0);
+            
+            double pScore = normalizeInverseDistance(res.getPickupDistanceMeters(), MAX_ROUTE_PROXIMITY_METERS);
+            res.setPickupScore(Math.round(pScore * 10.0) / 10.0);
+            
+            double dScore = normalizeInverseDistance(res.getDropoffDistanceMeters(), MAX_ROUTE_PROXIMITY_METERS);
+            res.setDropoffScore(Math.round(dScore * 10.0) / 10.0);
+            
+            double dtScore = normalizeInversePercentage(res.getDetourPercentage(), maxDetourPercentage);
+            res.setDetourScore(Math.round(dtScore * 10.0) / 10.0);
+            
+            // Passenger requested time is NOT currently passed into searchPoolsSpatial
+            // Using a clearly documented neutral score of 100 for backward compatibility.
+            double tScore = 100.0;
+            res.setTimeScore(tScore);
+            
+            double finalScore = (oScore * overlapWeight) +
+                                (pScore * pickupWeight) +
+                                (dScore * dropoffWeight) +
+                                (dtScore * detourWeight) +
+                                (tScore * timeWeight);
+            
+            res.setMatchScore(Math.round(finalScore * 10.0) / 10.0);
+        }
+        
+        phase5Results.sort(Comparator
+            .comparing(PoolResponse::getMatchScore, Comparator.nullsLast(Comparator.reverseOrder()))
+            .thenComparing(PoolResponse::getRouteOverlapPercentage, Comparator.nullsLast(Comparator.reverseOrder()))
+            .thenComparing(PoolResponse::getDetourPercentage, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(PoolResponse::getPickupDistanceMeters, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(PoolResponse::getDepartureTime, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(PoolResponse::getId));
+            
+        int rank = 1;
+        for (PoolResponse res : phase5Results) {
+            res.setMatchRank(rank++);
+        }
+    }
+
+    private double calculateLengthBasedOverlap(LineString passLs, LineString driverSegment, double toleranceMeters) {
+        double totalPassLen = 0.0;
+        double overlappingPassLen = 0.0;
+        
+        Coordinate[] pCoords = passLs.getCoordinates();
+        for (int i = 0; i < pCoords.length - 1; i++) {
+            double segLen = haversineMeters(pCoords[i].y, pCoords[i].x, pCoords[i+1].y, pCoords[i+1].x);
+            totalPassLen += segLen;
+            
+            // Subdivide segment if > 25m for better accuracy
+            int steps = Math.max(1, (int) Math.ceil(segLen / 25.0));
+            double stepLen = segLen / steps;
+            
+            double dx = pCoords[i+1].x - pCoords[i].x;
+            double dy = pCoords[i+1].y - pCoords[i].y;
+            
+            for (int j = 0; j < steps; j++) {
+                double mx = pCoords[i].x + (dx * (j + 0.5) / steps);
+                double my = pCoords[i].y + (dy * (j + 0.5) / steps);
+                
+                double distToDriver = distancePointToLineStringMeters(my, mx, driverSegment);
+                if (distToDriver <= toleranceMeters) {
+                    overlappingPassLen += stepLen;
+                }
+            }
+        }
+        
+        if (totalPassLen == 0) return 100.0;
+        return (overlappingPassLen / totalPassLen) * 100.0;
+    }
+
+    /**
+     * Haversine great-circle distance between two WGS-84 points, in metres.
+     * Used only for the same-location guard (50 m threshold); PostGIS handles
+     * all production distance calculations.
+     */
+    static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {
+        final double R = 6_371_000.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    private boolean isH2Database() {
+        if (dataSource == null) {
+            return false;
+        }
+        try (java.sql.Connection conn = dataSource.getConnection()) {
+            String dbName = conn.getMetaData().getDatabaseProductName();
+            return dbName != null && dbName.toLowerCase().contains("h2");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static double locatePointOnLineString(Point pt, LineString lineString) {
+        if (lineString == null || pt == null || lineString.getNumPoints() < 2) {
+            return 0.0;
+        }
+        LengthIndexedLine indexedLine = new LengthIndexedLine(lineString);
+        double index = indexedLine.indexOf(pt.getCoordinate());
+        double totalLength = lineString.getLength();
+        return totalLength > 0 ? index / totalLength : 0.0;
+    }
+
+    public static double distancePointToLineStringMeters(double lat, double lng, LineString lineString) {
+        if (lineString == null || lineString.getNumPoints() < 2) {
+            return Double.MAX_VALUE;
+        }
+        double minDistance = Double.MAX_VALUE;
+        Coordinate[] coords = lineString.getCoordinates();
+        for (int i = 0; i < coords.length - 1; i++) {
+            Coordinate a = coords[i];
+            Coordinate b = coords[i + 1];
+            Coordinate closest = closestPointOnSegment(lng, lat, a.x, a.y, b.x, b.y);
+            double dist = haversineMeters(lat, lng, closest.y, closest.x);
+            if (dist < minDistance) {
+                minDistance = dist;
+            }
+        }
+        return minDistance;
+    }
+
+    private static Coordinate closestPointOnSegment(double px, double py, double ax, double ay, double bx, double by) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        if (dx == 0 && dy == 0) {
+            return new Coordinate(ax, ay);
+        }
+        double t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+        t = Math.max(0.0, Math.min(1.0, t));
+        return new Coordinate(ax + t * dx, ay + t * dy);
+    }
+
+    /** Round PostGIS distance result to centimetre precision for a clean API response. */
+    private static double roundDistance(Double raw) {
+        if (raw == null) return 0.0;
+        return Math.round(raw * 100.0) / 100.0;
     }
 
     /** Case/whitespace-insensitive normalization used to match origin/destination text. */
@@ -208,12 +801,194 @@ public class VehiclePoolService {
                 .collect(Collectors.toList());
     }
 
+    private static final GeometryFactory GEOMETRY_FACTORY = new GeometryFactory(new PrecisionModel(), 4326);
+
+    private void validateCoordinateBounds(Double latitude, Double longitude, String fieldName) {
+        if (latitude == null || !Double.isFinite(latitude) || latitude < -90.0 || latitude > 90.0) {
+            throw new PoolException(400, "Invalid or missing " + fieldName + " latitude (must be between -90 and 90)");
+        }
+        if (longitude == null || !Double.isFinite(longitude) || longitude < -180.0 || longitude > 180.0) {
+            throw new PoolException(400, "Invalid or missing " + fieldName + " longitude (must be between -180 and 180)");
+        }
+    }
+
+    public static Point createPoint(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) {
+            return null;
+        }
+        // PostGIS / JTS coordinate order: x = longitude, y = latitude
+        Coordinate coord = new Coordinate(longitude, latitude);
+        Point point = GEOMETRY_FACTORY.createPoint(coord);
+        point.setSRID(4326);
+        return point;
+    }
+
+    public static LineString convertToLineString(Object geometryObj) {
+        if (geometryObj == null) {
+            return null;
+        }
+
+        List<Coordinate> coordinates = new ArrayList<>();
+
+        if (geometryObj instanceof Map<?, ?> map) {
+            Object coordsObj = map.get("coordinates");
+            if (coordsObj instanceof List<?> list) {
+                for (Object item : list) {
+                    Coordinate c = parseCoordinateItem(item);
+                    if (c != null) {
+                        coordinates.add(c);
+                    }
+                }
+            } else if (map.containsKey("encodedPolyline")) {
+                Object polyObj = map.get("encodedPolyline");
+                if (polyObj instanceof String polyStr) {
+                    return polylineToLineString(polyStr);
+                }
+            }
+        } else if (geometryObj instanceof JsonNode jsonNode) {
+            if (jsonNode.has("coordinates") && jsonNode.get("coordinates").isArray()) {
+                for (JsonNode pt : jsonNode.get("coordinates")) {
+                    if (pt.isArray() && pt.size() >= 2) {
+                        double lng = pt.get(0).asDouble();
+                        double lat = pt.get(1).asDouble();
+                        if (Double.isFinite(lng) && Double.isFinite(lat)) {
+                            coordinates.add(new Coordinate(lng, lat));
+                        }
+                    }
+                }
+            } else if (jsonNode.has("encodedPolyline")) {
+                return polylineToLineString(jsonNode.get("encodedPolyline").asText());
+            }
+        } else if (geometryObj instanceof String polyStr) {
+            return polylineToLineString(polyStr);
+        }
+
+        if (coordinates.size() < 2) {
+            return null;
+        }
+
+        LineString lineString = GEOMETRY_FACTORY.createLineString(coordinates.toArray(new Coordinate[0]));
+        lineString.setSRID(4326);
+        return lineString;
+    }
+
+    private static Coordinate parseCoordinateItem(Object item) {
+        if (item instanceof double[] arr && arr.length >= 2) {
+            double lng = arr[0];
+            double lat = arr[1];
+            if (Double.isFinite(lng) && Double.isFinite(lat)) {
+                return new Coordinate(lng, lat);
+            }
+        } else if (item instanceof List<?> list && list.size() >= 2) {
+            Object obj0 = list.get(0);
+            Object obj1 = list.get(1);
+            if (obj0 instanceof Number num0 && obj1 instanceof Number num1) {
+                double lng = num0.doubleValue();
+                double lat = num1.doubleValue();
+                if (Double.isFinite(lng) && Double.isFinite(lat)) {
+                    return new Coordinate(lng, lat);
+                }
+            }
+        }
+        return null;
+    }
+
+    public static LineString polylineToLineString(String encoded) {
+        if (encoded == null || encoded.isEmpty()) {
+            return null;
+        }
+        List<Coordinate> coordinates = new ArrayList<>();
+        int index = 0, len = encoded.length();
+        int lat = 0, lng = 0;
+
+        while (index < len) {
+            int b, shift = 0, result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lat += dlat;
+
+            shift = 0;
+            result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lng += dlng;
+
+            double pLat = lat / 1E5;
+            double pLng = lng / 1E5;
+            if (Double.isFinite(pLat) && Double.isFinite(pLng)) {
+                coordinates.add(new Coordinate(pLng, pLat));
+            }
+        }
+
+        if (coordinates.size() < 2) {
+            return null;
+        }
+
+        LineString lineString = GEOMETRY_FACTORY.createLineString(coordinates.toArray(new Coordinate[0]));
+        lineString.setSRID(4326);
+        return lineString;
+    }
+
     @Transactional
     public PoolResponse createPool(String creatorId, CreatePoolRequest request) {
         UserEntity creator = requireUser(creatorId);
 
+        validateCoordinateBounds(request.getStartLatitude(), request.getStartLongitude(), "start location");
+        validateCoordinateBounds(request.getDestinationLatitude(), request.getDestinationLongitude(), "destination");
+
         if (request.getDepartureTime().isBefore(LocalDateTime.now())) {
             throw new PoolException(400, "Departure date/time must be in the future");
+        }
+
+        // Calculate driver road route using existing GoogleRoutesService
+        RoutingRequest routingReq = new RoutingRequest(
+                new RoutingRequest.Coordinate(request.getStartLatitude(), request.getStartLongitude()),
+                new RoutingRequest.Coordinate(request.getDestinationLatitude(), request.getDestinationLongitude()),
+                "DRIVING",
+                false
+        );
+
+        RoutingResponse routingResp;
+        try {
+            routingResp = googleRoutesService.computeTrafficRoutes(routingReq);
+        } catch (Exception e) {
+            throw new PoolException(400, "Unable to calculate driver road route: " + e.getMessage());
+        }
+
+        if (routingResp == null || !routingResp.isSuccess() || routingResp.getPrimaryRoute() == null) {
+            String errorMsg = routingResp != null && routingResp.getMessage() != null
+                    ? routingResp.getMessage()
+                    : "Routing calculation failed";
+            throw new PoolException(400, "Unable to calculate driver road route: " + errorMsg);
+        }
+
+        RouteDTO primaryRoute = routingResp.getPrimaryRoute();
+
+        // Validate route distance
+        Double distanceMeters = primaryRoute.getDistanceMeters();
+        if (distanceMeters == null || !Double.isFinite(distanceMeters) || distanceMeters <= 0.0) {
+            throw new PoolException(400, "Route calculation returned invalid or non-positive distance");
+        }
+
+        // Validate route duration
+        Double durationSec = primaryRoute.getDurationSeconds();
+        if (durationSec == null || !Double.isFinite(durationSec) || durationSec <= 0.0) {
+            throw new PoolException(400, "Route calculation returned invalid or non-positive duration");
+        }
+        int routeDurationSeconds = (int) Math.round(durationSec);
+
+        // Convert and validate route geometry LineString (SRID 4326, longitude/latitude points)
+        LineString routeLineString = convertToLineString(primaryRoute.getGeometry());
+        if (routeLineString == null || routeLineString.getNumPoints() < 2) {
+            throw new PoolException(400, "Route calculation returned incomplete or missing route geometry (fewer than 2 points)");
         }
 
         VehiclePoolEntity pool = new VehiclePoolEntity();
@@ -221,7 +996,16 @@ public class VehiclePoolService {
         pool.setCreatorId(creator.getId());
         pool.setCreatorName(creator.getName());
         pool.setStartLocation(request.getStartLocation().trim());
+        pool.setStartLat(request.getStartLatitude());
+        pool.setStartLng(request.getStartLongitude());
+        pool.setStartGeom(createPoint(request.getStartLatitude(), request.getStartLongitude()));
         pool.setDestination(request.getDestination().trim());
+        pool.setDestinationLat(request.getDestinationLatitude());
+        pool.setDestinationLng(request.getDestinationLongitude());
+        pool.setDestinationGeom(createPoint(request.getDestinationLatitude(), request.getDestinationLongitude()));
+        pool.setRouteGeom(routeLineString);
+        pool.setRouteDistanceMeters(distanceMeters);
+        pool.setRouteDurationSeconds(routeDurationSeconds);
         pool.setDepartureTime(request.getDepartureTime());
         pool.setTotalSeats(request.getTotalSeats());
         pool.setAvailableSeats(request.getTotalSeats());
@@ -235,7 +1019,7 @@ public class VehiclePoolService {
     }
 
     @Transactional
-    public PoolResponse joinPool(String userId, String poolId) {
+    public PoolResponse joinPool(String userId, String poolId, com.greenmove.dto.VehiclePoolDTOs.JoinPoolRequest request) {
         UserEntity user = requireUser(userId);
 
         VehiclePoolEntity pool = poolRepository.findByIdForUpdate(poolId)
@@ -249,7 +1033,38 @@ public class VehiclePoolService {
             throw new PoolException(409, "You've already joined this pool");
         }
         if (pool.getAvailableSeats() == null || pool.getAvailableSeats() <= 0) {
-            throw new PoolException(409, "This pool is full");
+            throw new PoolException(400, "This pool is full");
+        }
+
+        Double pLat = null;
+        Double pLng = null;
+        Double dLat = null;
+        Double dLng = null;
+        String pLoc = null;
+        String dLoc = null;
+        org.locationtech.jts.geom.Point pGeom = null;
+        org.locationtech.jts.geom.Point dGeom = null;
+
+        if (request != null) {
+            pLat = request.getPickupLatitude();
+            pLng = request.getPickupLongitude();
+            dLat = request.getDropoffLatitude();
+            dLng = request.getDropoffLongitude();
+            pLoc = request.getPickupLocation();
+            dLoc = request.getDropoffLocation();
+
+            if (pLat != null && pLng != null) {
+                if (pLat < -90 || pLat > 90 || pLng < -180 || pLng > 180 || Double.isNaN(pLat) || Double.isNaN(pLng)) {
+                    throw new PoolException(400, "Invalid pickup coordinates");
+                }
+                pGeom = createPoint(pLat, pLng);
+            }
+            if (dLat != null && dLng != null) {
+                if (dLat < -90 || dLat > 90 || dLng < -180 || dLng > 180 || Double.isNaN(dLat) || Double.isNaN(dLng)) {
+                    throw new PoolException(400, "Invalid dropoff coordinates");
+                }
+                dGeom = createPoint(dLat, dLng);
+            }
         }
 
         pool.setAvailableSeats(pool.getAvailableSeats() - 1);
@@ -261,6 +1076,16 @@ public class VehiclePoolService {
         member.setUserId(user.getId());
         member.setUserName(user.getName());
         member.setJoinedAt(LocalDateTime.now());
+        
+        member.setPickupLocation(pLoc);
+        member.setPickupLat(pLat);
+        member.setPickupLng(pLng);
+        member.setPickupGeom(pGeom);
+        member.setDropoffLocation(dLoc);
+        member.setDropoffLat(dLat);
+        member.setDropoffLng(dLng);
+        member.setDropoffGeom(dGeom);
+        
         memberRepository.save(member);
 
         return toResponse(pool, user.getId(), true, false);
@@ -357,7 +1182,13 @@ public class VehiclePoolService {
         r.setCreatorId(p.getCreatorId());
         r.setCreatorName(p.getCreatorName());
         r.setStartLocation(p.getStartLocation());
+        r.setStartLatitude(p.getStartLat());
+        r.setStartLongitude(p.getStartLng());
         r.setDestination(p.getDestination());
+        r.setDestinationLatitude(p.getDestinationLat());
+        r.setDestinationLongitude(p.getDestinationLng());
+        r.setRouteDistanceMeters(p.getRouteDistanceMeters());
+        r.setRouteDurationSeconds(p.getRouteDurationSeconds());
         r.setDepartureTime(p.getDepartureTime());
         r.setTotalSeats(p.getTotalSeats());
         r.setAvailableSeats(p.getAvailableSeats());

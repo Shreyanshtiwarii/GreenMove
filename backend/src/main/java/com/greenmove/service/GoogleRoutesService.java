@@ -11,6 +11,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -41,6 +47,8 @@ public class GoogleRoutesService {
         this.objectMapper = new ObjectMapper();
     }
 
+    @Cacheable(value = "routes", key = "T(java.lang.Math).round(#req.origin.lat * 10000) + '_' + T(java.lang.Math).round(#req.origin.lng * 10000) + '_' + T(java.lang.Math).round(#req.destination.lat * 10000) + '_' + T(java.lang.Math).round(#req.destination.lng * 10000) + '_' + #req.profile + '_' + #req.avoidTolls", unless = "#result.success == false")
+    @Retryable(retryFor = {HttpServerErrorException.class, ResourceAccessException.class}, maxAttempts = 3, backoff = @Backoff(delay = 500, multiplier = 2))
     public RoutingResponse computeTrafficRoutes(RoutingRequest req) {
         if (apiKey == null || apiKey.trim().isEmpty()) {
             logger.info("Google Routes API key is not configured. Returning fallback signal.");
@@ -165,6 +173,12 @@ public class GoogleRoutesService {
             RouteDTO primary = routeList.get(0);
             return new RoutingResponse(true, "Google Routes API traffic calculations successful.", primary, routeList);
 
+        } catch (HttpClientErrorException e) {
+            logger.error("Client error executing Google Routes API request ({}): {}", e.getStatusCode(), e.getMessage());
+            return new RoutingResponse(false, "Google API client error: " + e.getMessage(), null, null);
+        } catch (HttpServerErrorException | ResourceAccessException e) {
+            logger.warn("Transient error executing Google Routes API request, will retry: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
             logger.error("Error executing Google Routes API request: {}", e.getMessage());
             return new RoutingResponse(false, "Traffic routing proxy exception: " + e.getMessage(), null, null);

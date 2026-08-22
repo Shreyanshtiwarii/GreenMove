@@ -1,6 +1,8 @@
 package com.greenmove.entity;
 
 import jakarta.persistence.*;
+import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.Point;
 import java.time.LocalDateTime;
 
 /**
@@ -24,8 +26,35 @@ public class VehiclePoolEntity {
     @Column(name = "start_location", length = 255, nullable = false)
     private String startLocation;
 
+    @Column(name = "start_lat")
+    private Double startLat;
+
+    @Column(name = "start_lng")
+    private Double startLng;
+
+    @Column(name = "start_geom", columnDefinition = "geometry(Point, 4326)")
+    private Point startGeom;
+
     @Column(name = "destination", length = 255, nullable = false)
     private String destination;
+
+    @Column(name = "destination_lat")
+    private Double destinationLat;
+
+    @Column(name = "destination_lng")
+    private Double destinationLng;
+
+    @Column(name = "destination_geom", columnDefinition = "geometry(Point, 4326)")
+    private Point destinationGeom;
+
+    @Column(name = "route_geom", columnDefinition = "geometry(LineString, 4326)")
+    private LineString routeGeom;
+
+    @Column(name = "route_distance_meters")
+    private Double routeDistanceMeters;
+
+    @Column(name = "route_duration_seconds")
+    private Integer routeDurationSeconds;
 
     @Column(name = "departure_time", nullable = false)
     private LocalDateTime departureTime;
@@ -62,8 +91,35 @@ public class VehiclePoolEntity {
     public String getStartLocation() { return startLocation; }
     public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
 
+    public Double getStartLat() { return startLat; }
+    public void setStartLat(Double startLat) { this.startLat = startLat; }
+
+    public Double getStartLng() { return startLng; }
+    public void setStartLng(Double startLng) { this.startLng = startLng; }
+
+    public Point getStartGeom() { return startGeom; }
+    public void setStartGeom(Point startGeom) { this.startGeom = startGeom; }
+
     public String getDestination() { return destination; }
     public void setDestination(String destination) { this.destination = destination; }
+
+    public Double getDestinationLat() { return destinationLat; }
+    public void setDestinationLat(Double destinationLat) { this.destinationLat = destinationLat; }
+
+    public Double getDestinationLng() { return destinationLng; }
+    public void setDestinationLng(Double destinationLng) { this.destinationLng = destinationLng; }
+
+    public Point getDestinationGeom() { return destinationGeom; }
+    public void setDestinationGeom(Point destinationGeom) { this.destinationGeom = destinationGeom; }
+
+    public LineString getRouteGeom() { return routeGeom; }
+    public void setRouteGeom(LineString routeGeom) { this.routeGeom = routeGeom; }
+
+    public Double getRouteDistanceMeters() { return routeDistanceMeters; }
+    public void setRouteDistanceMeters(Double routeDistanceMeters) { this.routeDistanceMeters = routeDistanceMeters; }
+
+    public Integer getRouteDurationSeconds() { return routeDurationSeconds; }
+    public void setRouteDurationSeconds(Integer routeDurationSeconds) { this.routeDurationSeconds = routeDurationSeconds; }
 
     public LocalDateTime getDepartureTime() { return departureTime; }
     public void setDepartureTime(LocalDateTime departureTime) { this.departureTime = departureTime; }

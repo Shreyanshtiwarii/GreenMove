@@ -41,14 +41,34 @@ export async function getPools() {
 }
 
 /**
- * Route-based discovery (Phase 2). Returns ONLY pools that are ACTIVE, still have an
- * open seat, and match both `origin` and `destination` -- never the full pool list.
- * Matching, status, and seat filtering all happen server-side.
- * @param {string} origin
- * @param {string} destination
+ * Spatial candidate search (Phase 3). Sends origin and destination names
+ * along with optional coordinates. When coordinates are present the backend
+ * performs a PostGIS ST_DWithin candidate search; when absent it falls back
+ * to the legacy text-match search.
+ *
+ * @param {string} origin                     - Origin place name (required for legacy fallback)
+ * @param {string} destination                - Destination place name (required for legacy fallback)
+ * @param {number|null} [originLatitude]      - Passenger pickup latitude
+ * @param {number|null} [originLongitude]     - Passenger pickup longitude
+ * @param {number|null} [destinationLatitude] - Passenger dropoff latitude
+ * @param {number|null} [destinationLongitude]- Passenger dropoff longitude
  */
-export async function searchPools(origin, destination) {
-  const params = new URLSearchParams({ origin, destination });
+export async function searchPools(
+  origin,
+  destination,
+  originLatitude = null,
+  originLongitude = null,
+  destinationLatitude = null,
+  destinationLongitude = null
+) {
+  const params = new URLSearchParams();
+  if (origin) params.set('origin', origin);
+  if (destination) params.set('destination', destination);
+  if (originLatitude != null) params.set('originLatitude', originLatitude);
+  if (originLongitude != null) params.set('originLongitude', originLongitude);
+  if (destinationLatitude != null) params.set('destinationLatitude', destinationLatitude);
+  if (destinationLongitude != null) params.set('destinationLongitude', destinationLongitude);
+
   const res = await fetch(`${API_BASE_URL}/pools/search?${params.toString()}`, {
     headers: { ...authHeaders() }
   });
@@ -57,7 +77,7 @@ export async function searchPools(origin, destination) {
 
 /**
  * Create a new vehicle pool. Requires authentication.
- * @param {{startLocation: string, destination: string, departureTime: string, totalSeats: number, costPerPassenger: number}} data
+ * @param {{startLocation: string, startLatitude: number, startLongitude: number, destination: string, destinationLatitude: number, destinationLongitude: number, departureTime: string, totalSeats: number, costPerPassenger: number}} data
  */
 export async function createPool(data) {
   const res = await fetch(`${API_BASE_URL}/pools`, {

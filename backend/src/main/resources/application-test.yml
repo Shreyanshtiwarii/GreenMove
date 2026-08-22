@@ -6,13 +6,13 @@ spring:
     driver-class-name: org.h2.Driver
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: create-drop
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
     show-sql: false
   flyway:
-    enabled: true
+    enabled: false
 
 greenmove:
   jwt:

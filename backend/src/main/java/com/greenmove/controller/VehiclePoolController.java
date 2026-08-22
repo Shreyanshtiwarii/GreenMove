@@ -6,6 +6,8 @@ import com.greenmove.service.VehiclePoolService;
 import com.greenmove.service.VehiclePoolService.PoolException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import com.greenmove.config.RateLimitingService;
+import io.github.bucket4j.Bucket;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -22,9 +24,11 @@ import java.util.Map;
 public class VehiclePoolController {
 
     private final VehiclePoolService vehiclePoolService;
+    private final RateLimitingService rateLimitingService;
 
-    public VehiclePoolController(VehiclePoolService vehiclePoolService) {
+    public VehiclePoolController(VehiclePoolService vehiclePoolService, RateLimitingService rateLimitingService) {
         this.vehiclePoolService = vehiclePoolService;
+        this.rateLimitingService = rateLimitingService;
     }
 
     @GetMapping
@@ -43,10 +47,20 @@ public class VehiclePoolController {
     @GetMapping("/search")
     public ResponseEntity<?> searchPools(Authentication authentication,
                                           @RequestParam(name = "origin", required = false) String origin,
-                                          @RequestParam(name = "destination", required = false) String destination) {
-        String currentUserId = authentication != null ? authentication.getName() : null;
+                                          @RequestParam(name = "originLatitude", required = false) Double originLatitude,
+                                          @RequestParam(name = "originLongitude", required = false) Double originLongitude,
+                                          @RequestParam(name = "destination", required = false) String destination,
+                                          @RequestParam(name = "destinationLatitude", required = false) Double destinationLatitude,
+                                          @RequestParam(name = "destinationLongitude", required = false) Double destinationLongitude) {
+        String currentUserId = authentication != null ? authentication.getName() : "anonymous";
+        Bucket bucket = rateLimitingService.resolveSearchBucket(currentUserId);
+        if (!bucket.tryConsume(1)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("message", "Rate limit exceeded. Please try again later."));
+        }
         try {
-            return ResponseEntity.ok(vehiclePoolService.searchPools(currentUserId, origin, destination));
+            return ResponseEntity.ok(vehiclePoolService.searchPoolsSpatial(
+                    currentUserId, origin, originLatitude, originLongitude,
+                    destination, destinationLatitude, destinationLongitude));
         } catch (PoolException ex) {
             return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
         }
@@ -95,12 +109,16 @@ public class VehiclePoolController {
     }
 
     @PostMapping("/{id}/join")
-    public ResponseEntity<?> joinPool(Authentication authentication, @PathVariable("id") String id) {
-        if (authentication == null || authentication.getName() == null) {
+    public ResponseEntity<?> joinPool(Authentication authentication, @PathVariable String id, @RequestBody(required = false) com.greenmove.dto.VehiclePoolDTOs.JoinPoolRequest request) {
+        if (authentication == null) {
             return unauthenticated();
         }
+        Bucket bucket = rateLimitingService.resolveJoinBucket(authentication.getName());
+        if (!bucket.tryConsume(1)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("message", "Rate limit exceeded. Please try again later."));
+        }
         try {
-            PoolResponse pool = vehiclePoolService.joinPool(authentication.getName(), id);
+            PoolResponse pool = vehiclePoolService.joinPool(authentication.getName(), id, request);
             return ResponseEntity.ok(pool);
         } catch (PoolException ex) {
             return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));

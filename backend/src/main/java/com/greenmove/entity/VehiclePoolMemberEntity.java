@@ -29,6 +29,30 @@ public class VehiclePoolMemberEntity {
     @Column(name = "joined_at", nullable = false)
     private LocalDateTime joinedAt = LocalDateTime.now();
 
+    @Column(name = "pickup_location", length = 255)
+    private String pickupLocation;
+
+    @Column(name = "pickup_lat")
+    private Double pickupLat;
+
+    @Column(name = "pickup_lng")
+    private Double pickupLng;
+
+    @Column(name = "pickup_geom", columnDefinition = "geometry(Point, 4326)")
+    private org.locationtech.jts.geom.Point pickupGeom;
+
+    @Column(name = "dropoff_location", length = 255)
+    private String dropoffLocation;
+
+    @Column(name = "dropoff_lat")
+    private Double dropoffLat;
+
+    @Column(name = "dropoff_lng")
+    private Double dropoffLng;
+
+    @Column(name = "dropoff_geom", columnDefinition = "geometry(Point, 4326)")
+    private org.locationtech.jts.geom.Point dropoffGeom;
+
     public VehiclePoolMemberEntity() {}
 
     public String getId() { return id; }
@@ -45,4 +69,22 @@ public class VehiclePoolMemberEntity {
 
     public LocalDateTime getJoinedAt() { return joinedAt; }
     public void setJoinedAt(LocalDateTime joinedAt) { this.joinedAt = joinedAt; }
+
+    public String getPickupLocation() { return pickupLocation; }
+    public void setPickupLocation(String pickupLocation) { this.pickupLocation = pickupLocation; }
+    public Double getPickupLat() { return pickupLat; }
+    public void setPickupLat(Double pickupLat) { this.pickupLat = pickupLat; }
+    public Double getPickupLng() { return pickupLng; }
+    public void setPickupLng(Double pickupLng) { this.pickupLng = pickupLng; }
+    public org.locationtech.jts.geom.Point getPickupGeom() { return pickupGeom; }
+    public void setPickupGeom(org.locationtech.jts.geom.Point pickupGeom) { this.pickupGeom = pickupGeom; }
+
+    public String getDropoffLocation() { return dropoffLocation; }
+    public void setDropoffLocation(String dropoffLocation) { this.dropoffLocation = dropoffLocation; }
+    public Double getDropoffLat() { return dropoffLat; }
+    public void setDropoffLat(Double dropoffLat) { this.dropoffLat = dropoffLat; }
+    public Double getDropoffLng() { return dropoffLng; }
+    public void setDropoffLng(Double dropoffLng) { this.dropoffLng = dropoffLng; }
+    public org.locationtech.jts.geom.Point getDropoffGeom() { return dropoffGeom; }
+    public void setDropoffGeom(org.locationtech.jts.geom.Point dropoffGeom) { this.dropoffGeom = dropoffGeom; }
 }
