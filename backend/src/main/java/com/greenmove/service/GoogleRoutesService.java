@@ -67,7 +67,6 @@ public class GoogleRoutesService {
             // "400 INVALID_ARGUMENT - Origin and destination must be set" error seen in production.
             bodyMap.put("origin", originMap);
             bodyMap.put("destination", destMap);
-
             String travelMode = "DRIVE";
             if ("MOTORCYCLE".equalsIgnoreCase(req.getProfile()) || "TWO_WHEELER".equalsIgnoreCase(req.getProfile())) {
                 travelMode = "TWO_WHEELER";
