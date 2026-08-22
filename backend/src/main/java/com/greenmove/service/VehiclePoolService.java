@@ -13,7 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -140,9 +143,12 @@ public class VehiclePoolService {
     }
 
     /**
-     * Pools created by the given user, for their "My Pools" management view. Unlike the
-     * public browse listing, each pool includes its passenger list so the creator can see
-     * who has joined.
+     * Pools created by the given user that are still ACTIVE, for their "My Pools"
+     * management view. Unlike the public browse listing, each pool includes its
+     * passenger list so the creator can see who has joined. Once a pool is marked
+     * completed or terminated it drops out of this list -- it moves to
+     * {@link #listPoolHistory} instead, so "My Pools" only ever shows pools the
+     * creator is still actively managing.
      */
     @Transactional(readOnly = true)
     public List<PoolResponse> listMyPools(String creatorId) {
@@ -150,7 +156,55 @@ public class VehiclePoolService {
         List<VehiclePoolEntity> pools = poolRepository.findByCreatorIdOrderByDepartureTimeAsc(creator.getId());
 
         return pools.stream()
+                .filter(p -> STATUS_ACTIVE.equals(p.getStatus()))
                 .map(p -> toResponse(p, creator.getId(), false, true))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Combined "Pool / Trip History" for the given user: every pool that has been
+     * ended (COMPLETED or TERMINATED) where the user was either the creator or a
+     * joined passenger. This is what a completed pool moves into once its creator
+     * ends it -- it disappears from the active "My Pools" list and shows up here
+     * instead, for both the creator and every passenger who rode with them.
+     *
+     * Each entry includes the full passenger list and cost breakdown, same as
+     * {@link #listMyPools}, since this is always a private, personalized view (only
+     * pools the caller was actually part of are ever returned) rather than the
+     * public browse listing.
+     */
+    @Transactional(readOnly = true)
+    public List<PoolResponse> listPoolHistory(String userId) {
+        UserEntity user = requireUser(userId);
+
+        // Pools this user created and has since ended.
+        List<VehiclePoolEntity> ownEnded = poolRepository.findByCreatorIdOrderByDepartureTimeAsc(user.getId())
+                .stream()
+                .filter(p -> !STATUS_ACTIVE.equals(p.getStatus()))
+                .collect(Collectors.toList());
+
+        // Pools this user joined as a passenger that have since ended (a user can never
+        // join their own pool, so there's no overlap with ownEnded above).
+        Set<String> joinedPoolIds = joinedPoolIdsFor(user.getId());
+        List<VehiclePoolEntity> joinedEnded = joinedPoolIds.isEmpty()
+                ? List.of()
+                : poolRepository.findAllById(joinedPoolIds).stream()
+                        .filter(p -> !STATUS_ACTIVE.equals(p.getStatus()))
+                        .collect(Collectors.toList());
+
+        // Merge (de-duplicated by id) and show the most recently traveled trips first.
+        Map<String, VehiclePoolEntity> merged = new LinkedHashMap<>();
+        for (VehiclePoolEntity p : ownEnded) {
+            merged.put(p.getId(), p);
+        }
+        for (VehiclePoolEntity p : joinedEnded) {
+            merged.putIfAbsent(p.getId(), p);
+        }
+
+        return merged.values().stream()
+                .sorted(Comparator.comparing(VehiclePoolEntity::getDepartureTime,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(p -> toResponse(p, user.getId(), joinedPoolIds.contains(p.getId()), true))
                 .collect(Collectors.toList());
     }
 

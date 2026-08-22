@@ -52,7 +52,7 @@ public class VehiclePoolController {
         }
     }
 
-    /** Pools created by the current user, for their "My Pools" management view. */
+    /** Pools created by the current user that are still ACTIVE, for their "My Pools" management view. */
     @GetMapping("/mine")
     public ResponseEntity<?> listMyPools(Authentication authentication) {
         if (authentication == null || authentication.getName() == null) {
@@ -60,6 +60,22 @@ public class VehiclePoolController {
         }
         try {
             return ResponseEntity.ok(vehiclePoolService.listMyPools(authentication.getName()));
+        } catch (PoolException ex) {
+            return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Pool / Trip History: every pool the current user created or joined that has since
+     * been ended (completed or terminated), for their "Trip History" view.
+     */
+    @GetMapping("/history")
+    public ResponseEntity<?> listPoolHistory(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            return unauthenticated();
+        }
+        try {
+            return ResponseEntity.ok(vehiclePoolService.listPoolHistory(authentication.getName()));
         } catch (PoolException ex) {
             return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
         }

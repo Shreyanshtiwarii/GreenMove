@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import LocationAutocompleteInput from '../components/LocationAutocompleteInput';
+import { useAuth } from '../context/AuthContext';
 import {
   searchPools,
   createPool,
   joinPool,
   leavePool,
   getMyPools,
+  getPoolHistory,
   completePool,
   terminatePool
 } from '../services/vehiclePoolService';
@@ -87,7 +89,8 @@ function getStatusBadge(pool) {
 }
 
 export default function VehiclePool() {
-  const [activeTab, setActiveTab] = useState('browse'); // 'browse' | 'mine'
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('browse'); // 'browse' | 'mine' | 'history'
 
   // Route-based discovery (Phase 2): Browse Pools no longer loads every pool up front.
   // The user enters an origin/destination first; `pools` only ever holds the results of
@@ -110,6 +113,15 @@ export default function VehiclePool() {
   const [loadingMyPools, setLoadingMyPools] = useState(false);
   const [myPoolsError, setMyPoolsError] = useState(null);
   const [myPoolsLoaded, setMyPoolsLoaded] = useState(false);
+
+  // Pool / Trip History: pools the user created or joined that have since been
+  // completed or terminated. Loaded lazily (like "My Pools") the first time the
+  // History tab is opened, and persists across refresh/login since it's read
+  // straight from the backend rather than kept only in local state.
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -211,6 +223,26 @@ export default function VehiclePool() {
       loadMyPools();
     }
   }, [activeTab, myPoolsLoaded, loadMyPools]);
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const data = await getPoolHistory();
+      setHistory(Array.isArray(data) ? data : []);
+      setHistoryLoaded(true);
+    } catch (err) {
+      setHistoryError(err.message || 'Unable to load your trip history right now.');
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history' && !historyLoaded) {
+      loadHistory();
+    }
+  }, [activeTab, historyLoaded, loadHistory]);
 
   // Keep the two lists (public browse list + creator's own list) consistent whenever a
   // pool anywhere changes seats or status, so the same pool never shows different
@@ -374,7 +406,13 @@ export default function VehiclePool() {
     setEndErrors((prev) => ({ ...prev, [poolId]: undefined }));
     try {
       const updated = outcome === 'complete' ? await completePool(poolId) : await terminatePool(poolId);
-      applyPoolUpdate(updated);
+      // Reflect the new status anywhere the pool is currently visible in Browse...
+      setPools((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+      // ...then move it out of the active "My Pools" list (it's no longer ACTIVE)...
+      setMyPools((prev) => prev.filter((p) => p.id !== updated.id));
+      // ...and into Trip History, if that tab has already been loaded, so it shows up
+      // immediately without needing a refresh.
+      setHistory((prev) => (historyLoaded ? [updated, ...prev.filter((p) => p.id !== updated.id)] : prev));
       setEndDialogPool(null);
     } catch (err) {
       setEndErrors((prev) => ({ ...prev, [poolId]: err.message || 'Unable to end this pool. Please try again.' }));
@@ -430,6 +468,18 @@ export default function VehiclePool() {
         >
           <span className="material-symbols-outlined text-base">manage_accounts</span>
           My Pools
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('history')}
+          className={`px-4 py-2.5 text-label-sm font-label-sm cursor-pointer border-b-2 transition-colors -mb-px flex items-center gap-2 ${
+            activeTab === 'history'
+              ? 'border-primary text-primary font-semibold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+          }`}
+        >
+          <span className="material-symbols-outlined text-base">history</span>
+          Trip History
         </button>
       </div>
 
@@ -734,9 +784,10 @@ export default function VehiclePool() {
           {!loadingMyPools && !myPoolsError && myPools.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
               <span className="material-symbols-outlined text-5xl text-outline-variant mb-3">directions_car</span>
-              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">You haven't created any pools yet</h3>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">No active pools right now</h3>
               <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md mb-6">
-                Create a vehicle pool for your route and manage passengers, seats, and status here.
+                Create a vehicle pool for your route and manage passengers, seats, and status here. Once a pool is
+                completed or terminated, it moves to Trip History.
               </p>
               <button
                 type="button"
@@ -838,6 +889,134 @@ export default function VehiclePool() {
                         {pool.status === 'COMPLETED' ? 'Trip completed' : 'Pool terminated'}
                       </div>
                     )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'history' && (
+        <>
+          {/* Loading state */}
+          {loadingHistory && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[0, 1].map((i) => (
+                <div
+                  key={i}
+                  className="bg-surface-container-lowest rounded-2xl p-5 border border-outline-variant animate-pulse h-[240px]"
+                >
+                  <div className="h-4 w-2/3 bg-surface-container-high rounded mb-3" />
+                  <div className="h-3 w-1/2 bg-surface-container-high rounded mb-6" />
+                  <div className="h-3 w-full bg-surface-container-high rounded mb-2" />
+                  <div className="h-3 w-4/5 bg-surface-container-high rounded" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Error state */}
+          {!loadingHistory && historyError && (
+            <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
+              <span className="material-symbols-outlined text-5xl text-error mb-3">error</span>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">Couldn't load your trip history</h3>
+              <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md mb-6">{historyError}</p>
+              <button
+                type="button"
+                onClick={loadHistory}
+                className="bg-primary text-on-primary rounded-xl px-6 py-2.5 text-label-sm font-label-sm hover:bg-primary/90 transition-colors shadow-md cursor-pointer flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-sm">refresh</span>
+                <span>Try Again</span>
+              </button>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loadingHistory && !historyError && history.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
+              <span className="material-symbols-outlined text-5xl text-outline-variant mb-3">history</span>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">No completed trips yet</h3>
+              <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md">
+                Pools you've created or joined will show up here once they're marked completed or terminated.
+              </p>
+            </div>
+          )}
+
+          {/* History list */}
+          {!loadingHistory && !historyError && history.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {history.map((pool) => {
+                const { date, time } = formatDateTime(pool.departureTime);
+                const badge = getStatusBadge(pool);
+                const members = Array.isArray(pool.members) ? pool.members : [];
+
+                return (
+                  <div
+                    key={pool.id}
+                    className="bg-surface-container-lowest rounded-2xl p-5 border border-tertiary-fixed shadow-sm hover:shadow-md transition-all flex flex-col opacity-95"
+                  >
+                    <div className="flex justify-between items-start mb-3 gap-2">
+                      <div className="min-w-0">
+                        <p className="text-label-xs font-semibold text-on-surface-variant flex items-center gap-1">
+                          <span className="material-symbols-outlined text-sm">
+                            {pool.own ? 'directions_car' : 'person'}
+                          </span>
+                          {pool.own ? 'You created this pool' : `Joined • ${pool.creatorName}`}
+                        </p>
+                        <p className="text-label-xs text-on-surface-variant mt-0.5">{date} • {time}</p>
+                      </div>
+                      {badge && (
+                        <span className={`px-2.5 py-1 rounded-full text-label-xs font-label-xs font-bold border shrink-0 ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="bg-surface-container-low p-3 rounded-xl mb-3 border border-outline-variant/30">
+                      <div className="flex items-start gap-2 text-body-md font-body-md font-semibold text-on-surface">
+                        <span className="material-symbols-outlined text-primary text-base mt-0.5">trip_origin</span>
+                        <span className="min-w-0 break-words">{pool.startLocation}</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-body-md font-body-md font-semibold text-on-surface mt-1">
+                        <span className="material-symbols-outlined text-error text-base mt-0.5">location_on</span>
+                        <span className="min-w-0 break-words">{pool.destination}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-1 text-label-xs mb-3">
+                      <div>
+                        <span className="text-on-surface-variant">Cost: </span>
+                        <strong className="text-primary">{formatCurrency(pool.costPerPassenger)}</strong>
+                        <span className="text-on-surface-variant"> / seat</span>
+                      </div>
+                      <div className="text-on-surface-variant">
+                        Total: <strong className="text-on-surface">{formatCurrency(pool.totalCost)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Member list -- who shared this ride */}
+                    <div className="border-t border-outline-variant/20 pt-3">
+                      <p className="text-label-xs font-semibold text-on-surface-variant mb-2 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-sm">group</span>
+                        Members ({members.length + 1})
+                      </p>
+                      <ul className="space-y-1 max-h-28 overflow-y-auto scrollbar-none">
+                        <li className="flex justify-between text-label-xs text-on-surface">
+                          <span className="truncate">{pool.creatorName}{pool.own ? ' (You, creator)' : ' (creator)'}</span>
+                        </li>
+                        {members.map((m, idx) => {
+                          const joined = formatDateTime(m.joinedAt);
+                          return (
+                            <li key={`${pool.id}-${idx}`} className="flex justify-between text-label-xs text-on-surface">
+                              <span className="truncate">{m.userName}{pool.joined && !pool.own && user?.name === m.userName ? ' (You)' : ''}</span>
+                              <span className="text-on-surface-variant shrink-0 ml-2">{joined.date}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   </div>
                 );
               })}

@@ -102,6 +102,18 @@ export async function getMyPools() {
 }
 
 /**
+ * Fetch the current user's Pool / Trip History: every pool they created or joined
+ * that has since been ended (completed or terminated), including each pool's
+ * passenger list. Requires authentication.
+ */
+export async function getPoolHistory() {
+  const res = await fetch(`${API_BASE_URL}/pools/history`, {
+    headers: { ...authHeaders() }
+  });
+  return parseResponse(res);
+}
+
+/**
  * Creator-only: mark a pool as completed (e.g. the trip/destination was reached).
  * Requires authentication; fails if the caller isn't the pool's creator.
  */
