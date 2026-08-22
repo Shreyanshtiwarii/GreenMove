@@ -125,6 +125,26 @@ public class VehiclePoolController {
         }
     }
 
+    /**
+     * Phase 3 - Driver-only Active Pool Details. Full operational view of one of the
+     * caller's own pools (route geometry/distance/duration, every joined passenger's
+     * pickup/dropoff coordinates & names, fare, phone number, and an APPROXIMATE pickup
+     * time). Dedicated endpoint, separate from the public search/browse APIs, so passenger-
+     * private data (phone number, exact coordinates/names) is never exposed there.
+     * Creator-only: returns 403 for any other caller, including other joined passengers.
+     */
+    @GetMapping("/{id}/active-details")
+    public ResponseEntity<?> getActivePoolDetails(Authentication authentication, @PathVariable("id") String id) {
+        if (authentication == null || authentication.getName() == null) {
+            return unauthenticated();
+        }
+        try {
+            return ResponseEntity.ok(vehiclePoolService.getActivePoolDetails(authentication.getName(), id));
+        } catch (PoolException ex) {
+            return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
+        }
+    }
+
     @PostMapping("/{id}/leave")
     public ResponseEntity<?> leavePool(Authentication authentication, @PathVariable("id") String id) {
         if (authentication == null || authentication.getName() == null) {

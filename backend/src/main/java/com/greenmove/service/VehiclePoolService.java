@@ -23,6 +23,8 @@ import org.locationtech.jts.linearref.LengthIndexedLine;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -417,6 +419,10 @@ public class VehiclePoolService {
             
             res.setPassengerRouteDistanceMeters(passDistMeters);
             res.setPassengerRouteDurationSeconds(passDurationSecs);
+            // Phase 1 - Dynamic carpool pricing: reuse the driver's ratePerKm (already computed
+            // in toResponse from existing driver data) and the Phase 5 passenger C->D distance
+            // computed once above -- no additional Google Routes call is made for pricing.
+            res.setPassengerFare(computePassengerFare(res.getRatePerKm(), passDistMeters));
             
             try {
                 // 2. Driver Segment
@@ -1051,6 +1057,7 @@ public class VehiclePoolService {
         Double dLng = null;
         String pLoc = null;
         String dLoc = null;
+        String phoneNumber = null;
         org.locationtech.jts.geom.Point pGeom = null;
         org.locationtech.jts.geom.Point dGeom = null;
 
@@ -1074,7 +1081,29 @@ public class VehiclePoolService {
                 }
                 dGeom = createPoint(dLat, dLng);
             }
+
+            // Phase 2 - Passenger Join flow: phone number collected in the confirmation
+            // modal. Validated when present; omitted entirely for legacy callers that
+            // don't send one, so pre-Phase-2 join behavior is unaffected.
+            phoneNumber = normalizePhoneNumber(request.getPhoneNumber());
+            if (phoneNumber != null) {
+                validatePhoneNumber(phoneNumber);
+            }
+
+            // NOTE: request.getClientCalculatedFare() is intentionally NEVER read here.
+            // Whatever fare the frontend displayed to the passenger is informational
+            // only; the authoritative fare is always recalculated below from the pool's
+            // own server-side data plus the just-validated coordinates.
         }
+
+        // Phase 2 - Passenger Join flow: recalculate the authoritative rate/km, this
+        // passenger's pickup->dropoff distance, and their fare entirely from validated
+        // server-side data. A frontend-supplied fare is never trusted or used.
+        Double ratePerKm = computeRatePerKm(pool.getCostPerPassenger(), pool.getRouteDistanceMeters());
+        Double passengerDistanceMeters = (pGeom != null && dGeom != null)
+                ? roundDistance(haversineMeters(pLat, pLng, dLat, dLng))
+                : null;
+        Double passengerFare = computePassengerFare(ratePerKm, passengerDistanceMeters);
 
         pool.setAvailableSeats(pool.getAvailableSeats() - 1);
         poolRepository.save(pool);
@@ -1094,10 +1123,178 @@ public class VehiclePoolService {
         member.setDropoffLat(dLat);
         member.setDropoffLng(dLng);
         member.setDropoffGeom(dGeom);
-        
+        member.setPhoneNumber(phoneNumber);
+        member.setRatePerKm(ratePerKm);
+        member.setPassengerRouteDistanceMeters(passengerDistanceMeters);
+        member.setPassengerFare(passengerFare);
+
         memberRepository.save(member);
 
-        return toResponse(pool, user.getId(), true, false);
+        PoolResponse response = toResponse(pool, user.getId(), true, false);
+        // Surface the authoritative, server-recalculated figures back to the passenger
+        // so the UI can confirm what was actually charged (never the client's own value).
+        response.setPassengerRouteDistanceMeters(passengerDistanceMeters);
+        response.setPassengerFare(passengerFare);
+
+        // Phase 5 - Carpool operational integration: surface an APPROXIMATE pickup time to
+        // the joining passenger on the join response itself, so the "join succeeded"
+        // notification can show it immediately without a second round trip. Reuses the
+        // same estimate already computed for the driver's Active Pool Details (Phase 3) --
+        // derived purely from the pool's existing stored route geometry/duration, never a
+        // fresh Google Routes call.
+        LocalDateTime approxPickupTime = computeApproxPickupTime(pool, member);
+        response.setApproxPickupTime(approxPickupTime);
+        response.setPickupTimeApproximate(approxPickupTime != null);
+
+        return response;
+    }
+
+    // =========================================================================
+    //  Phase 3 - Driver-only Active Pool Details
+    // =========================================================================
+
+    /**
+     * Full operational view of one of the caller's own pools -- route geometry/distance/
+     * duration, every joined passenger's pickup/dropoff coordinates & names, fare, phone
+     * number, and an APPROXIMATE pickup time. Creator-only: throws 403 for anyone else.
+     * Deliberately served by its own read model (rather than reusing {@link #toResponse})
+     * so the public search/browse responses can never accidentally start carrying
+     * passenger-private fields. Reuses only data already stored on the pool/members --
+     * never triggers a fresh Google routing call.
+     */
+    @Transactional(readOnly = true)
+    public com.greenmove.dto.VehiclePoolDTOs.ActivePoolDetailsResponse getActivePoolDetails(String userId, String poolId) {
+        UserEntity user = requireUser(userId);
+
+        VehiclePoolEntity pool = poolRepository.findById(poolId)
+                .orElseThrow(() -> new PoolException(404, "Vehicle pool not found"));
+
+        if (!pool.getCreatorId().equals(user.getId())) {
+            throw new PoolException(403, "Only the pool creator can view passenger details");
+        }
+
+        com.greenmove.dto.VehiclePoolDTOs.ActivePoolDetailsResponse response =
+                new com.greenmove.dto.VehiclePoolDTOs.ActivePoolDetailsResponse();
+        response.setId(pool.getId());
+        response.setStartLocation(pool.getStartLocation());
+        response.setStartLatitude(pool.getStartLat());
+        response.setStartLongitude(pool.getStartLng());
+        response.setDestination(pool.getDestination());
+        response.setDestinationLatitude(pool.getDestinationLat());
+        response.setDestinationLongitude(pool.getDestinationLng());
+        response.setRouteGeometry(lineStringToGeoJson(pool.getRouteGeom()));
+        response.setRouteDistanceMeters(pool.getRouteDistanceMeters());
+        response.setRouteDurationSeconds(pool.getRouteDurationSeconds());
+        response.setDepartureTime(pool.getDepartureTime());
+        response.setStatus(computeDisplayStatus(pool));
+        response.setRatePerKm(computeRatePerKm(pool.getCostPerPassenger(), pool.getRouteDistanceMeters()));
+
+        List<VehiclePoolMemberEntity> members = memberRepository.findByPoolId(pool.getId());
+        List<com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse> passengers = new ArrayList<>();
+        for (VehiclePoolMemberEntity member : members) {
+            com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse pd =
+                    new com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse();
+            pd.setUserName(member.getUserName());
+            pd.setPickupLocation(member.getPickupLocation());
+            pd.setPickupLatitude(member.getPickupLat());
+            pd.setPickupLongitude(member.getPickupLng());
+            pd.setDropoffLocation(member.getDropoffLocation());
+            pd.setDropoffLatitude(member.getDropoffLat());
+            pd.setDropoffLongitude(member.getDropoffLng());
+            pd.setPhoneNumber(member.getPhoneNumber());
+            pd.setFare(member.getPassengerFare());
+            pd.setPassengerDistanceMeters(member.getPassengerRouteDistanceMeters());
+            pd.setJoinedAt(member.getJoinedAt());
+
+            LocalDateTime approxPickupTime = computeApproxPickupTime(pool, member);
+            pd.setApproxPickupTime(approxPickupTime);
+            pd.setPickupTimeApproximate(approxPickupTime != null);
+
+            passengers.add(pd);
+        }
+        response.setPassengers(passengers);
+
+        return response;
+    }
+
+    /**
+     * pickupTime ~= driver departureTime + estimated A(driver start)->C(this passenger's
+     * pickup) duration. The A->C duration is NOT re-fetched from Google here (Phase 5 only
+     * computes it transiently, per-search, and never persists it on the member row); instead
+     * it is estimated from data already stored on the pool -- the fraction of the driver's
+     * existing route geometry consumed between the start point and the passenger's stored
+     * pickup point, applied to the driver's existing total route duration. Always an
+     * ESTIMATE, and the caller must treat/label it as such.
+     *
+     * Returns null (never throws) whenever there isn't enough stored data to estimate it:
+     * missing departure time, missing/degenerate route geometry, missing route duration, or
+     * a legacy/null passenger pickup location -- so one incomplete pool/member never breaks
+     * the rest of the response.
+     */
+    private LocalDateTime computeApproxPickupTime(VehiclePoolEntity pool, VehiclePoolMemberEntity member) {
+        if (pool.getDepartureTime() == null) {
+            return null;
+        }
+        Long acDurationSeconds = estimateDriverToPickupDurationSeconds(pool, member);
+        if (acDurationSeconds == null) {
+            return null;
+        }
+        return pool.getDepartureTime().plusSeconds(acDurationSeconds);
+    }
+
+    private Long estimateDriverToPickupDurationSeconds(VehiclePoolEntity pool, VehiclePoolMemberEntity member) {
+        LineString routeGeom = pool.getRouteGeom();
+        Integer totalDurationSeconds = pool.getRouteDurationSeconds();
+        Double pickupLat = member.getPickupLat();
+        Double pickupLng = member.getPickupLng();
+
+        if (routeGeom == null || routeGeom.getNumPoints() < 2) return null;
+        if (totalDurationSeconds == null || totalDurationSeconds <= 0) return null;
+        if (pickupLat == null || pickupLng == null) return null;
+        if (pickupLat < -90 || pickupLat > 90 || pickupLng < -180 || pickupLng > 180) return null;
+
+        Point pickupPoint = createPoint(pickupLat, pickupLng);
+        double fraction = locatePointOnLineString(pickupPoint, routeGeom);
+        fraction = Math.max(0.0, Math.min(1.0, fraction));
+
+        return Math.round(fraction * totalDurationSeconds);
+    }
+
+    /**
+     * Converts an already-stored JTS LineString back into the same GeoJSON shape used
+     * elsewhere in the API ({@code {type: "LineString", coordinates: [[lng,lat], ...]}}).
+     * No routing call involved -- this is a pure in-memory reformat of existing geometry.
+     * Returns null for legacy pools with no stored/degenerate route geometry.
+     */
+    private static Map<String, Object> lineStringToGeoJson(LineString lineString) {
+        if (lineString == null || lineString.getNumPoints() < 2) {
+            return null;
+        }
+        List<double[]> coordinates = new ArrayList<>();
+        for (Coordinate c : lineString.getCoordinates()) {
+            coordinates.add(new double[]{c.x, c.y});
+        }
+        Map<String, Object> geoJson = new LinkedHashMap<>();
+        geoJson.put("type", "LineString");
+        geoJson.put("coordinates", coordinates);
+        return geoJson;
+    }
+
+    /** E.164-ish phone validation: optional leading '+', 7-15 digits after stripping common separators. */
+    private static final java.util.regex.Pattern PHONE_PATTERN = java.util.regex.Pattern.compile("^\\+?[0-9]{7,15}$");
+
+    /** Strips spaces/hyphens/parentheses; returns null for blank input so it's treated as "not provided". */
+    private String normalizePhoneNumber(String rawPhone) {
+        if (rawPhone == null) return null;
+        String trimmed = rawPhone.trim();
+        if (trimmed.isEmpty()) return null;
+        return trimmed.replaceAll("[\\s\\-()]", "");
+    }
+
+    private void validatePhoneNumber(String normalizedPhone) {
+        if (!PHONE_PATTERN.matcher(normalizedPhone).matches()) {
+            throw new PoolException(400, "Invalid phone number");
+        }
     }
 
     @Transactional
@@ -1198,6 +1395,10 @@ public class VehiclePoolService {
         r.setDestinationLongitude(p.getDestinationLng());
         r.setRouteDistanceMeters(p.getRouteDistanceMeters());
         r.setRouteDurationSeconds(p.getRouteDurationSeconds());
+        // Phase 1 - Dynamic carpool pricing: rate/km derived purely from data the driver
+        // already has (no extra routing calls). costPerPassenger remains the untouched
+        // full A->B reference price stored on the entity.
+        r.setRatePerKm(computeRatePerKm(p.getCostPerPassenger(), p.getRouteDistanceMeters()));
         r.setDepartureTime(p.getDepartureTime());
         r.setTotalSeats(p.getTotalSeats());
         r.setAvailableSeats(p.getAvailableSeats());
@@ -1243,5 +1444,58 @@ public class VehiclePoolService {
 
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    // =========================================================================
+    //  Phase 1 - Dynamic carpool pricing
+    // =========================================================================
+
+    /** Decimal places used when rounding money (rate/km, passenger fare). */
+    private static final int MONEY_SCALE = 2;
+
+    /**
+     * ratePerKm = costPerPassenger / (routeDistanceMeters / 1000)
+     *
+     * Uses only data the driver's pool already has (existing costPerPassenger as the
+     * full A->B reference price, and the existing routeDistanceMeters) -- never triggers
+     * a routing call. Computed entirely on the backend so the frontend can never
+     * influence pricing.
+     *
+     * Returns null (rather than throwing) when costPerPassenger or routeDistanceMeters is
+     * missing, zero, or negative, so a single malformed/legacy pool never breaks the rest
+     * of a pool list/search response; callers simply omit the rate for that pool.
+     */
+    private Double computeRatePerKm(Double costPerPassenger, Double routeDistanceMeters) {
+        if (costPerPassenger == null || routeDistanceMeters == null) return null;
+        if (costPerPassenger <= 0 || routeDistanceMeters <= 0) return null;
+
+        BigDecimal cost = BigDecimal.valueOf(costPerPassenger);
+        BigDecimal distanceKm = BigDecimal.valueOf(routeDistanceMeters)
+                .divide(BigDecimal.valueOf(1000), 10, RoundingMode.HALF_UP);
+        if (distanceKm.signum() <= 0) return null;
+
+        return cost.divide(distanceKm, MONEY_SCALE, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    /**
+     * passengerFare = ratePerKm * passengerRouteDistanceKm
+     *
+     * passengerRouteDistanceMeters MUST be the Phase 5 C->D passenger route distance that
+     * was already fetched once per search from Google Routes; this method performs no
+     * routing calls of its own and never trusts a frontend-supplied fare.
+     *
+     * Returns null when ratePerKm is unavailable/non-positive or the passenger distance is
+     * missing/zero/negative, so invalid inputs are handled safely instead of surfacing a
+     * bogus fare.
+     */
+    private Double computePassengerFare(Double ratePerKm, Double passengerRouteDistanceMeters) {
+        if (ratePerKm == null || ratePerKm <= 0) return null;
+        if (passengerRouteDistanceMeters == null || passengerRouteDistanceMeters <= 0) return null;
+
+        BigDecimal rate = BigDecimal.valueOf(ratePerKm);
+        BigDecimal distanceKm = BigDecimal.valueOf(passengerRouteDistanceMeters)
+                .divide(BigDecimal.valueOf(1000), 10, RoundingMode.HALF_UP);
+
+        return rate.multiply(distanceKm).setScale(MONEY_SCALE, RoundingMode.HALF_UP).doubleValue();
     }
 }

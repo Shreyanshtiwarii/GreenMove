@@ -19,7 +19,7 @@ if (typeof maplibregl.setWorkerUrl === 'function') {
 // Default center: Bangalore
 const DEFAULT_CENTER = [77.5946, 12.9716];
 
-export default function GreenMoveMap({ origin, destination, route, evStations = [], unsafeSegment = null, onRecenterRef }) {
+export default function GreenMoveMap({ origin, destination, route, evStations = [], unsafeSegment = null, stops = [], onStopClick = null, onRecenterRef }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   
@@ -27,6 +27,9 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
   const originMarkerRef = useRef(null);
   const destinationMarkerRef = useRef(null);
   const evStationMarkersRef = useRef([]);
+  // Phase 4 - Active Pool Details: pickup/dropoff passenger stop markers. Purely
+  // additive -- callers that don't pass `stops` render exactly as before.
+  const stopMarkersRef = useRef([]);
 
   const apiKey = import.meta.env.VITE_MAPTILER_API_KEY || '';
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -106,6 +109,8 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       }
       evStationMarkersRef.current.forEach(m => m.remove());
       evStationMarkersRef.current = [];
+      stopMarkersRef.current.forEach(m => m.remove());
+      stopMarkersRef.current = [];
       map.remove();
     };
   }, [apiKey]);
@@ -246,6 +251,55 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       });
     }
 
+    // 3b. Manage Passenger Pickup/Dropoff Stop Markers (Phase 4: Active Pool Details).
+    // Purely additive -- only drawn when the caller supplies `stops`; existing callers
+    // that don't pass this prop render exactly as before.
+    stopMarkersRef.current.forEach(m => m.remove());
+    stopMarkersRef.current = [];
+
+    if (Array.isArray(stops) && stops.length > 0) {
+      stops.forEach((stop) => {
+        if (typeof stop.lng !== 'number' || typeof stop.lat !== 'number') return;
+
+        const isPickup = stop.kind === 'pickup';
+        const stopEl = document.createElement('div');
+        stopEl.className = `relative w-8 h-8 rounded-full ${isPickup ? 'bg-primary' : 'bg-amber-600'} border-2 border-white text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-110 transition-transform text-[11px] font-bold`;
+        stopEl.textContent = isPickup ? 'P' : 'D';
+        if (typeof stop.order === 'number') {
+          const badge = document.createElement('span');
+          badge.className = 'absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-on-surface border border-outline-variant text-[10px] font-bold flex items-center justify-center shadow-sm';
+          badge.textContent = String(stop.order);
+          stopEl.appendChild(badge);
+        }
+
+        const timeLabel = stop.approxPickupTime
+          ? new Date(stop.approxPickupTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+          : null;
+
+        const popupContent = `
+          <div style="font-family: system-ui, sans-serif; padding: 4px; max-width: 220px;">
+            <div style="font-weight: bold; font-size: 13px; color: #004100; margin-bottom: 2px;">${stop.passengerName || 'Passenger'}</div>
+            <div style="font-size: 11px; font-weight: 600; color: ${isPickup ? '#00658f' : '#9a3412'}; margin-bottom: 4px;">${isPickup ? '📍 Pickup' : '🏁 Dropoff'}${stop.locationLabel ? `: ${stop.locationLabel}` : ''}</div>
+            ${timeLabel ? `<div style="font-size: 11px; color: #4b5563;">${stop.pickupTimeApproximate ? 'Approx. pickup time' : 'Pickup time'}: <strong>${timeLabel}</strong></div>` : ''}
+            ${typeof stop.fare === 'number' ? `<div style="font-size: 11px; color: #4b5563;">Fare: <strong>₹${stop.fare.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong></div>` : ''}
+            ${stop.phoneNumber ? `<div style="font-size: 11px; color: #4b5563;">Phone: <strong>${stop.phoneNumber}</strong></div>` : ''}
+          </div>
+        `;
+        const popup = new maplibregl.Popup({ offset: 15 }).setHTML(popupContent);
+
+        const marker = new maplibregl.Marker({ element: stopEl })
+          .setLngLat([stop.lng, stop.lat])
+          .setPopup(popup)
+          .addTo(map);
+
+        if (typeof onStopClick === 'function') {
+          stopEl.addEventListener('click', () => onStopClick(stop));
+        }
+
+        stopMarkersRef.current.push(marker);
+      });
+    }
+
     // 4. Manage Route Polyline Layers
     const sourceId = 'route-source';
     const layerId = 'route-layer';
@@ -382,7 +436,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
         map.flyTo({ center: [destination.lng, destination.lat], zoom: 14, duration: 1000 });
       }
     }
-  }, [mapLoaded, origin, destination, route, evStations, unsafeSegment]);
+  }, [mapLoaded, origin, destination, route, evStations, unsafeSegment, stops, onStopClick]);
 
   // Wire recenter triggers to the parent
   useEffect(() => {

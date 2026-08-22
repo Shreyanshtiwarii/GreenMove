@@ -90,11 +90,30 @@ export async function createPool(data) {
 
 /**
  * Reserve a seat on a pool. Requires authentication.
+ *
+ * Phase 2 - Passenger Join flow: `details` carries what was collected in the join
+ * confirmation modal -- pickup location (GPS or map selection) and phone number --
+ * plus the destination the passenger already searched/matched (reused, not re-asked).
+ * `clientCalculatedFare` is sent for display/debugging parity only: the backend always
+ * recalculates the authoritative fare itself and never trusts this value.
+ *
+ * @param {string} poolId
+ * @param {{
+ *   pickupLocation?: string,
+ *   pickupLatitude?: number,
+ *   pickupLongitude?: number,
+ *   dropoffLocation?: string,
+ *   dropoffLatitude?: number,
+ *   dropoffLongitude?: number,
+ *   phoneNumber?: string,
+ *   clientCalculatedFare?: number
+ * }} [details]
  */
-export async function joinPool(poolId) {
+export async function joinPool(poolId, details) {
   const res = await fetch(`${API_BASE_URL}/pools/${encodeURIComponent(poolId)}/join`, {
     method: 'POST',
-    headers: { ...authHeaders() }
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: details ? JSON.stringify(details) : undefined
   });
   return parseResponse(res);
 }
@@ -128,6 +147,20 @@ export async function getMyPools() {
  */
 export async function getPoolHistory() {
   const res = await fetch(`${API_BASE_URL}/pools/history`, {
+    headers: { ...authHeaders() }
+  });
+  return parseResponse(res);
+}
+
+/**
+ * Phase 3/4 - Driver-only Active Pool Details: full operational view of one of the
+ * caller's own pools (stored route geometry/distance/duration, every joined
+ * passenger's pickup/dropoff coordinates & names, fare, phone number, and an
+ * APPROXIMATE pickup time). Powers the "My Pools -> Active Pool -> Details" map.
+ * Requires authentication; fails with 403 if the caller isn't the pool's creator.
+ */
+export async function getActivePoolDetails(poolId) {
+  const res = await fetch(`${API_BASE_URL}/pools/${encodeURIComponent(poolId)}/active-details`, {
     headers: { ...authHeaders() }
   });
   return parseResponse(res);

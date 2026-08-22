@@ -1,6 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import LocationAutocompleteInput from '../components/LocationAutocompleteInput';
+import ActivePoolDetailsModal from '../components/pool/ActivePoolDetailsModal';
+import NotificationToast, { useToastStack } from '../components/NotificationToast';
 import { useAuth } from '../context/AuthContext';
+import { reverseGeocode } from '../services/geocodingService';
+import { msUntilPickupReminder } from '../utils/pickupReminder';
 import {
   searchPools,
   createPool,
@@ -11,6 +15,18 @@ import {
   completePool,
   terminatePool
 } from '../services/vehiclePoolService';
+
+/** Basic client-side phone sanity check, mirroring the backend's E.164-ish validation. */
+function isValidPhoneNumber(value) {
+  const stripped = (value || '').trim().replace(/[\s\-()]/g, '');
+  return /^\+?[0-9]{7,15}$/.test(stripped);
+}
+
+/** meters -> "x.x km" for the join confirmation modal. */
+function formatDistanceKm(meters) {
+  if (meters === null || meters === undefined || Number.isNaN(Number(meters))) return '—';
+  return `${(Number(meters) / 1000).toFixed(1)} km`;
+}
 
 const INITIAL_FORM = {
   startLocation: '',
@@ -136,9 +152,41 @@ export default function VehiclePool() {
   const [actionPoolId, setActionPoolId] = useState(null);
   const [actionErrors, setActionErrors] = useState({});
 
+  // Phase 2 - Passenger Join flow: clicking "Join Pool" opens a confirmation modal
+  // instead of joining immediately. It collects ONLY pickup location (GPS or map
+  // selection) and phone number -- destination is reused from the pool's already
+  // matched/searched destination and never asked again.
+  const [joinModalPool, setJoinModalPool] = useState(null);
+  const [joinPickupText, setJoinPickupText] = useState('');
+  const [joinPickupGeo, setJoinPickupGeo] = useState(null);
+  const [joinLocating, setJoinLocating] = useState(false);
+  const [joinPhone, setJoinPhone] = useState('');
+  const [joinFieldErrors, setJoinFieldErrors] = useState({});
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState(null);
+
+  // Phase 5 - Carpool operational integration: passenger-facing "join succeeded" +
+  // "pickup coming up" notifications, both rendered through the shared toast stack.
+  const { toasts, pushToast, dismissToast } = useToastStack();
+  const pickupReminderTimers = useRef(new Map());
+
+  // Clear any pending pickup-reminder timers when the page unmounts, so a scheduled
+  // reminder never fires (or throws) after the component is gone.
+  useEffect(() => {
+    const timersMap = pickupReminderTimers.current;
+    return () => {
+      timersMap.forEach((timer) => clearTimeout(timer));
+      timersMap.clear();
+    };
+  }, []);
+
   // Creator "end pool" flow: which pool is the confirm dialog open for, which outcome
   // is currently being submitted, and any error from the last attempt.
   const [endDialogPool, setEndDialogPool] = useState(null);
+
+  // Phase 4 - Active Pool Details map. Only ever opened from a "My Pools" active pool
+  // card's "Details" button -- never from Browse/Search or Create Pool.
+  const [detailsPoolId, setDetailsPoolId] = useState(null);
   const [endingPoolId, setEndingPoolId] = useState(null);
   const [endErrors, setEndErrors] = useState({});
 
@@ -390,16 +438,173 @@ export default function VehiclePool() {
   };
 
   const runAction = async (poolId, action) => {
+    // Only "leave" goes through here now -- "join" opens the confirmation modal instead
+    // (see openJoinModal / submitJoin below).
     setActionPoolId(poolId);
     setActionErrors((prev) => ({ ...prev, [poolId]: undefined }));
     try {
-      const updated = action === 'join' ? await joinPool(poolId) : await leavePool(poolId);
+      const updated = await leavePool(poolId);
       applyPoolUpdate(updated);
     } catch (err) {
       setActionErrors((prev) => ({ ...prev, [poolId]: err.message || 'Something went wrong. Please try again.' }));
     } finally {
       setActionPoolId(null);
     }
+  };
+
+  // ---------------------------------------------------------------------
+  // Phase 2 - Passenger Join flow: confirmation modal
+  // ---------------------------------------------------------------------
+
+  const openJoinModal = (pool) => {
+    setJoinError(null);
+    setJoinFieldErrors({});
+    setJoinPhone('');
+    // Prefill pickup with whatever origin the passenger already searched with, if any --
+    // they can still change it (GPS or map) before confirming.
+    setJoinPickupText(routeOriginLocation?.name || '');
+    setJoinPickupGeo(routeOriginLocation || null);
+    setJoinModalPool(pool);
+  };
+
+  const closeJoinModal = () => {
+    if (joining) return;
+    setJoinModalPool(null);
+    setJoinPickupText('');
+    setJoinPickupGeo(null);
+    setJoinPhone('');
+    setJoinFieldErrors({});
+    setJoinError(null);
+  };
+
+  const handleJoinPickupInputChange = (value) => {
+    setJoinPickupText(value);
+    setJoinPickupGeo((prev) => (prev && prev.name === value ? prev : null));
+    setJoinFieldErrors((prev) => ({ ...prev, pickup: undefined }));
+  };
+
+  const handleJoinPickupSelect = (loc) => {
+    setJoinPickupText(loc.name);
+    setJoinPickupGeo(loc);
+    setJoinFieldErrors((prev) => ({ ...prev, pickup: undefined }));
+  };
+
+  const handleUseCurrentLocationForJoin = () => {
+    if (!navigator.geolocation) {
+      setJoinFieldErrors((prev) => ({ ...prev, pickup: 'Geolocation is not supported by your browser.' }));
+      return;
+    }
+    setJoinLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const placeName = await reverseGeocode(longitude, latitude);
+          const loc = { name: placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, lat: latitude, lng: longitude };
+          setJoinPickupGeo(loc);
+          setJoinPickupText(loc.name);
+          setJoinFieldErrors((prev) => ({ ...prev, pickup: undefined }));
+        } catch (err) {
+          const fallbackLoc = { name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, lat: latitude, lng: longitude };
+          setJoinPickupGeo(fallbackLoc);
+          setJoinPickupText(fallbackLoc.name);
+        } finally {
+          setJoinLocating(false);
+        }
+      },
+      () => {
+        setJoinFieldErrors((prev) => ({ ...prev, pickup: 'Unable to get your current location.' }));
+        setJoinLocating(false);
+      }
+    );
+  };
+
+  const submitJoin = async (e) => {
+    e.preventDefault();
+    if (!joinModalPool) return;
+
+    const errors = {};
+    if (!joinPickupText.trim()) {
+      errors.pickup = 'Pickup location is required';
+    } else if (!joinPickupGeo || joinPickupGeo.name !== joinPickupText.trim()) {
+      errors.pickup = 'Please select a location from the suggestions, or use current location';
+    }
+    if (!joinPhone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!isValidPhoneNumber(joinPhone)) {
+      errors.phone = 'Enter a valid phone number';
+    }
+    setJoinFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const updated = await joinPool(joinModalPool.id, {
+        pickupLocation: joinPickupGeo.name,
+        pickupLatitude: joinPickupGeo.lat,
+        pickupLongitude: joinPickupGeo.lng,
+        // Destination is reused from the pool's already matched/searched destination --
+        // never re-asked in this modal.
+        dropoffLocation: joinModalPool.destination,
+        dropoffLatitude: joinModalPool.destinationLatitude,
+        dropoffLongitude: joinModalPool.destinationLongitude,
+        phoneNumber: joinPhone.trim(),
+        // Informational only -- the backend always recalculates the authoritative fare
+        // itself and ignores this value.
+        clientCalculatedFare: joinModalPool.passengerFare ?? null
+      });
+      applyPoolUpdate(updated);
+      closeJoinModal();
+
+      // Phase 5 - Carpool operational integration: notify the passenger their join
+      // succeeded, showing the authoritative server-recalculated fare and the
+      // APPROXIMATE pickup time -- both already present on the join response, so no
+      // extra request is needed.
+      const pickupTimeLabel = updated.approxPickupTime ? formatDateTime(updated.approxPickupTime).time : null;
+      pushToast({
+        icon: 'check_circle',
+        tone: 'success',
+        title: "You're in! Pool joined successfully.",
+        message: [
+          updated.passengerFare != null ? `Fare: ${formatCurrency(updated.passengerFare)}` : null,
+          pickupTimeLabel ? `Pickup: ${updated.pickupTimeApproximate ? '~' : ''}${pickupTimeLabel}` : null
+        ].filter(Boolean).join(' · ') || 'The driver has been notified.'
+      });
+
+      schedulePickupReminder(updated.id, updated.approxPickupTime);
+    } catch (err) {
+      setJoinError(err.message || 'Unable to join this pool. Please try again.');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  /**
+   * Phase 5 - Carpool operational integration: schedules an in-app "pickup coming up"
+   * reminder ~1 minute before the passenger's APPROXIMATE pickup time, reusing the same
+   * toast stack as the join-success notification (no duplicate notification mechanism).
+   * A no-op when there's no approx pickup time to work from, or it's too far out /
+   * already past to usefully schedule (see msUntilPickupReminder).
+   */
+  const schedulePickupReminder = (poolId, approxPickupTime) => {
+    const delayMs = msUntilPickupReminder(approxPickupTime);
+    if (delayMs === null) return;
+
+    const existing = pickupReminderTimers.current.get(poolId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      pickupReminderTimers.current.delete(poolId);
+      const timeLabel = formatDateTime(approxPickupTime).time;
+      pushToast({
+        icon: 'directions_car',
+        tone: 'reminder',
+        title: 'Pickup coming up',
+        message: `Your ride is picking you up in about 1 minute (~${timeLabel}). Head to your pickup spot.`
+      });
+    }, delayMs);
+    pickupReminderTimers.current.set(poolId, timer);
   };
 
   const openEndDialog = (pool) => {
@@ -633,7 +838,7 @@ export default function VehiclePool() {
 
                 let buttonLabel = 'Join Pool';
                 let buttonIcon = 'person_add';
-                let buttonAction = () => runAction(pool.id, 'join');
+                let buttonAction = () => openJoinModal(pool);
                 let buttonDisabled = false;
                 let buttonClass = 'bg-primary text-on-primary hover:bg-primary/90';
 
@@ -723,6 +928,19 @@ export default function VehiclePool() {
                         Total: <strong className="text-on-surface">{formatCurrency(pool.totalCost)}</strong>
                       </div>
                     </div>
+
+                    {(pool.ratePerKm != null || pool.passengerFare != null) && (
+                      <div className="flex justify-between items-center text-label-xs text-on-surface-variant -mt-3 mb-4">
+                        <span>
+                          {pool.ratePerKm != null && <>{formatCurrency(pool.ratePerKm)}/km</>}
+                        </span>
+                        {pool.passengerFare != null && (
+                          <span>
+                            Est. fare for you: <strong className="text-primary">{formatCurrency(pool.passengerFare)}</strong>
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {actionError && (
                       <p role="alert" className="text-error text-label-xs mb-2">{actionError}</p>
@@ -886,15 +1104,25 @@ export default function VehiclePool() {
                     )}
 
                     {pool.canEnd ? (
-                      <button
-                        type="button"
-                        onClick={() => openEndDialog(pool)}
-                        disabled={endingPoolId === pool.id}
-                        className="mt-auto w-full py-2.5 rounded-xl font-label-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:cursor-not-allowed bg-error-container/30 text-error hover:bg-error-container/50 border border-error/30"
-                      >
-                        <span className="material-symbols-outlined text-sm">stop_circle</span>
-                        <span>End Pool</span>
-                      </button>
+                      <div className="mt-auto space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setDetailsPoolId(pool.id)}
+                          className="w-full py-2.5 rounded-xl font-label-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 bg-primary-container/20 text-primary hover:bg-primary-container/40 border border-primary/30"
+                        >
+                          <span className="material-symbols-outlined text-sm">map</span>
+                          <span>Details</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEndDialog(pool)}
+                          disabled={endingPoolId === pool.id}
+                          className="w-full py-2.5 rounded-xl font-label-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:cursor-not-allowed bg-error-container/30 text-error hover:bg-error-container/50 border border-error/30"
+                        >
+                          <span className="material-symbols-outlined text-sm">stop_circle</span>
+                          <span>End Pool</span>
+                        </button>
+                      </div>
                     ) : (
                       <div className="mt-auto w-full py-2.5 rounded-xl font-label-xs font-semibold text-center bg-surface-container-high text-on-surface-variant">
                         {pool.status === 'COMPLETED' ? 'Trip completed' : 'Pool terminated'}
@@ -1034,6 +1262,11 @@ export default function VehiclePool() {
             </div>
           )}
         </>
+      )}
+
+      {/* Phase 4 - Active Pool Details map (My Pools -> Active Pool -> Details only) */}
+      {detailsPoolId && (
+        <ActivePoolDetailsModal poolId={detailsPoolId} onClose={() => setDetailsPoolId(null)} />
       )}
 
       {/* End Pool confirm dialog */}
@@ -1265,6 +1498,153 @@ export default function VehiclePool() {
           </div>
         </div>
       )}
+      {/* Join Pool confirmation modal (Phase 2) */}
+      {joinModalPool && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="join-pool-title"
+          onClick={closeJoinModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-surface-container-lowest border border-outline-variant shadow-lg p-6 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="join-pool-title" className="text-headline-md font-headline-md font-bold text-on-surface">
+                Confirm Your Ride
+              </h2>
+              <button
+                type="button"
+                onClick={closeJoinModal}
+                disabled={joining}
+                className="text-on-surface-variant hover:text-on-surface cursor-pointer disabled:opacity-50"
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="bg-surface-container-low rounded-xl p-4 mb-4 space-y-2">
+              <div className="flex items-start gap-2 text-body-md font-body-md font-semibold text-on-surface">
+                <span className="material-symbols-outlined text-error text-base mt-0.5">location_on</span>
+                <span className="min-w-0 break-words">To {joinModalPool.destination}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-outline-variant/30 text-label-xs">
+                <div>
+                  <span className="text-on-surface-variant block">Rate</span>
+                  <strong className="text-on-surface">
+                    {joinModalPool.ratePerKm != null ? `${formatCurrency(joinModalPool.ratePerKm)}/km` : '—'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-on-surface-variant block">Route distance</span>
+                  <strong className="text-on-surface">{formatDistanceKm(joinModalPool.passengerRouteDistanceMeters)}</strong>
+                </div>
+                <div className="col-span-2 pt-1">
+                  <span className="text-on-surface-variant block">Estimated fare</span>
+                  <strong className="text-primary text-body-md">
+                    {joinModalPool.passengerFare != null ? formatCurrency(joinModalPool.passengerFare) : 'Calculated after you confirm'}
+                  </strong>
+                </div>
+              </div>
+              <p className="text-label-xs text-on-surface-variant pt-1">
+                Final fare is always recalculated by the server and may differ slightly if you change your pickup location below.
+              </p>
+            </div>
+
+            {joinError && (
+              <div role="alert" className="bg-error-container/20 border border-error/30 text-error p-3 rounded-xl text-label-xs mb-4">
+                {joinError}
+              </div>
+            )}
+
+            <form onSubmit={submitJoin} noValidate className="space-y-4">
+              <div>
+                <label htmlFor="joinPickup" className="block text-label-xs font-semibold text-on-surface mb-1">
+                  Pickup location
+                </label>
+                <LocationAutocompleteInput
+                  id="joinPickup"
+                  name="joinPickup"
+                  value={joinPickupText}
+                  onInputChange={handleJoinPickupInputChange}
+                  onSelectLocation={handleJoinPickupSelect}
+                  selectedLocation={joinPickupGeo}
+                  placeholder="Where should the driver pick you up?"
+                  hasError={!!joinFieldErrors.pickup}
+                  inputClassName={`w-full bg-surface-container-low border rounded-xl pl-9 pr-3 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${joinFieldErrors.pickup ? 'border-error' : 'border-outline-variant'}`}
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={handleUseCurrentLocationForJoin}
+                      disabled={joinLocating}
+                      title="Use current location"
+                      className="text-primary hover:text-primary/80 cursor-pointer disabled:opacity-50 shrink-0 px-1"
+                    >
+                      <span className={`material-symbols-outlined text-base ${joinLocating ? 'animate-spin' : ''}`}>
+                        {joinLocating ? 'progress_activity' : 'my_location'}
+                      </span>
+                    </button>
+                  }
+                />
+                {joinFieldErrors.pickup && <p className="text-error text-label-xs mt-1">{joinFieldErrors.pickup}</p>}
+              </div>
+
+              <div>
+                <label htmlFor="joinPhone" className="block text-label-xs font-semibold text-on-surface mb-1">
+                  Phone number
+                </label>
+                <input
+                  id="joinPhone"
+                  name="joinPhone"
+                  type="tel"
+                  value={joinPhone}
+                  onChange={(e) => {
+                    setJoinPhone(e.target.value);
+                    setJoinFieldErrors((prev) => ({ ...prev, phone: undefined }));
+                  }}
+                  placeholder="e.g. +91 98765 43210"
+                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${joinFieldErrors.phone ? 'border-error' : 'border-outline-variant'}`}
+                />
+                {joinFieldErrors.phone && <p className="text-error text-label-xs mt-1">{joinFieldErrors.phone}</p>}
+                <p className="text-label-xs text-on-surface-variant mt-1">Shared with the driver only, so they can reach you.</p>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={closeJoinModal}
+                  disabled={joining}
+                  className="px-4 py-2.5 rounded-xl font-label-sm text-on-surface-variant hover:bg-surface-variant transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={joining}
+                  className="px-5 py-2.5 rounded-xl font-label-sm bg-primary text-on-primary hover:bg-primary/90 transition-colors shadow-sm cursor-pointer flex items-center gap-2 font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {joining ? (
+                    <>
+                      <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+                      <span>Joining...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm">person_add</span>
+                      <span>Confirm &amp; Join</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <NotificationToast toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }

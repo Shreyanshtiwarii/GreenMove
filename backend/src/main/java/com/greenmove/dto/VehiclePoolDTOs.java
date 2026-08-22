@@ -75,6 +75,18 @@ public class VehiclePoolDTOs {
         private String dropoffLocation;
         private Double dropoffLatitude;
         private Double dropoffLongitude;
+
+        // Phase 2 - Passenger Join flow
+        /** Passenger's contact phone number, collected in the join confirmation modal. */
+        private String phoneNumber;
+        /**
+         * Fare shown to the passenger in the confirmation modal, as calculated by the
+         * frontend. This is accepted for logging/debugging only -- the backend NEVER
+         * uses this value. The authoritative fare is always recalculated server-side
+         * from the pool's own data and the validated pickup/dropoff coordinates.
+         */
+        private Double clientCalculatedFare;
+
         public String getPickupLocation() { return pickupLocation; }
         public void setPickupLocation(String pickupLocation) { this.pickupLocation = pickupLocation; }
         public Double getPickupLatitude() { return pickupLatitude; }
@@ -87,6 +99,10 @@ public class VehiclePoolDTOs {
         public void setDropoffLatitude(Double dropoffLatitude) { this.dropoffLatitude = dropoffLatitude; }
         public Double getDropoffLongitude() { return dropoffLongitude; }
         public void setDropoffLongitude(Double dropoffLongitude) { this.dropoffLongitude = dropoffLongitude; }
+        public String getPhoneNumber() { return phoneNumber; }
+        public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+        public Double getClientCalculatedFare() { return clientCalculatedFare; }
+        public void setClientCalculatedFare(Double clientCalculatedFare) { this.clientCalculatedFare = clientCalculatedFare; }
     }
 
     public static class PoolResponse {
@@ -121,7 +137,33 @@ public class VehiclePoolDTOs {
         private boolean detourCompatible;
         private boolean routeOverlapCompatible;
                 private boolean phase5Compatible;
-        
+
+        // Phase 1 - Dynamic carpool pricing
+        /**
+         * Driver's rate per kilometre, derived from the driver's existing costPerPassenger
+         * (unchanged full A->B reference price) divided by the driver's existing
+         * routeDistanceMeters. Null when either input is missing/zero/negative so a
+         * malformed pool never breaks the rest of the response.
+         */
+        private Double ratePerKm;
+        /**
+         * Estimated fare for this passenger's own C->D route: ratePerKm * passengerRouteDistanceKm.
+         * Only populated when both ratePerKm and the passenger's Phase 5 route distance are valid.
+         */
+        private Double passengerFare;
+
+        // Phase 5 - Carpool operational integration (join confirmation)
+        /**
+         * APPROXIMATE pickup time for the CALLING passenger, only ever populated on the
+         * response to their own join call: driver's departureTime + an estimated
+         * A(driver start)->C(this passenger's pickup) duration, derived purely from data
+         * already stored on the pool (existing route geometry + duration) -- never a fresh
+         * routing call. Null whenever there isn't enough stored data to estimate it.
+         */
+        private LocalDateTime approxPickupTime;
+        /** True whenever {@link #approxPickupTime} is populated -- always an ESTIMATE, never exact. */
+        private boolean pickupTimeApproximate;
+
         // Phase 6 Match Scoring
         private Double matchScore;
         private Integer matchRank;
@@ -216,6 +258,15 @@ public class VehiclePoolDTOs {
         public void setRouteOverlapCompatible(boolean routeOverlapCompatible) { this.routeOverlapCompatible = routeOverlapCompatible; }
         public boolean isPhase5Compatible() { return phase5Compatible; }
         public void setPhase5Compatible(boolean phase5Compatible) { this.phase5Compatible = phase5Compatible; }
+
+        public Double getRatePerKm() { return ratePerKm; }
+        public void setRatePerKm(Double ratePerKm) { this.ratePerKm = ratePerKm; }
+        public Double getPassengerFare() { return passengerFare; }
+        public void setPassengerFare(Double passengerFare) { this.passengerFare = passengerFare; }
+        public LocalDateTime getApproxPickupTime() { return approxPickupTime; }
+        public void setApproxPickupTime(LocalDateTime approxPickupTime) { this.approxPickupTime = approxPickupTime; }
+        public boolean isPickupTimeApproximate() { return pickupTimeApproximate; }
+        public void setPickupTimeApproximate(boolean pickupTimeApproximate) { this.pickupTimeApproximate = pickupTimeApproximate; }
         
         public Double getMatchScore() { return matchScore; }
         public void setMatchScore(Double matchScore) { this.matchScore = matchScore; }
@@ -277,5 +328,125 @@ public class VehiclePoolDTOs {
         public void setUserName(String userName) { this.userName = userName; }
         public LocalDateTime getJoinedAt() { return joinedAt; }
         public void setJoinedAt(LocalDateTime joinedAt) { this.joinedAt = joinedAt; }
+    }
+
+    // =========================================================================
+    //  Phase 3 - Driver-only Active Pool Details
+    // =========================================================================
+
+    /**
+     * Full operational view of a single pool, for the pool's creator only. Served by a
+     * dedicated endpoint (GET /api/v1/pools/{id}/active-details) so the public browse/search
+     * responses never need to carry passenger-private fields (phone number, exact
+     * pickup/dropoff coordinates and names). Built entirely from data the pool and its
+     * members already have stored -- no new Google routing calls are made to produce it.
+     */
+    public static class ActivePoolDetailsResponse {
+        private String id;
+        private String startLocation;
+        private Double startLatitude;
+        private Double startLongitude;
+        private String destination;
+        private Double destinationLatitude;
+        private Double destinationLongitude;
+        /** Existing stored route geometry as GeoJSON: {@code {type: "LineString", coordinates: [[lng,lat], ...]}}. Null for legacy pools with no stored geometry. */
+        private Object routeGeometry;
+        private Double routeDistanceMeters;
+        private Integer routeDurationSeconds;
+        private LocalDateTime departureTime;
+        private String status;
+        /** Driver's rate/km, derived from existing costPerPassenger + routeDistanceMeters (no new calls). */
+        private Double ratePerKm;
+        private List<PassengerDetailResponse> passengers;
+
+        public ActivePoolDetailsResponse() {}
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getStartLocation() { return startLocation; }
+        public void setStartLocation(String startLocation) { this.startLocation = startLocation; }
+        public Double getStartLatitude() { return startLatitude; }
+        public void setStartLatitude(Double startLatitude) { this.startLatitude = startLatitude; }
+        public Double getStartLongitude() { return startLongitude; }
+        public void setStartLongitude(Double startLongitude) { this.startLongitude = startLongitude; }
+        public String getDestination() { return destination; }
+        public void setDestination(String destination) { this.destination = destination; }
+        public Double getDestinationLatitude() { return destinationLatitude; }
+        public void setDestinationLatitude(Double destinationLatitude) { this.destinationLatitude = destinationLatitude; }
+        public Double getDestinationLongitude() { return destinationLongitude; }
+        public void setDestinationLongitude(Double destinationLongitude) { this.destinationLongitude = destinationLongitude; }
+        public Object getRouteGeometry() { return routeGeometry; }
+        public void setRouteGeometry(Object routeGeometry) { this.routeGeometry = routeGeometry; }
+        public Double getRouteDistanceMeters() { return routeDistanceMeters; }
+        public void setRouteDistanceMeters(Double routeDistanceMeters) { this.routeDistanceMeters = routeDistanceMeters; }
+        public Integer getRouteDurationSeconds() { return routeDurationSeconds; }
+        public void setRouteDurationSeconds(Integer routeDurationSeconds) { this.routeDurationSeconds = routeDurationSeconds; }
+        public LocalDateTime getDepartureTime() { return departureTime; }
+        public void setDepartureTime(LocalDateTime departureTime) { this.departureTime = departureTime; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+        public Double getRatePerKm() { return ratePerKm; }
+        public void setRatePerKm(Double ratePerKm) { this.ratePerKm = ratePerKm; }
+        public List<PassengerDetailResponse> getPassengers() { return passengers; }
+        public void setPassengers(List<PassengerDetailResponse> passengers) { this.passengers = passengers; }
+    }
+
+    /**
+     * One joined passenger's full operational detail, visible only to the pool's creator via
+     * {@link ActivePoolDetailsResponse}. Never returned from public search/browse endpoints.
+     */
+    public static class PassengerDetailResponse {
+        private String userName;
+        private String pickupLocation;
+        private Double pickupLatitude;
+        private Double pickupLongitude;
+        private String dropoffLocation;
+        private Double dropoffLatitude;
+        private Double dropoffLongitude;
+        /** Passenger's contact phone number. Creator-only -- never exposed by public endpoints. */
+        private String phoneNumber;
+        /** This passenger's authoritative, server-computed fare (stored at join time). */
+        private Double fare;
+        /** This passenger's own pickup->dropoff distance (stored at join time). */
+        private Double passengerDistanceMeters;
+        private LocalDateTime joinedAt;
+        /**
+         * APPROXIMATE pickup time: driver's departureTime + an estimated A(driver start)->C(this
+         * passenger's pickup) duration, derived from the pool's existing stored route
+         * duration/geometry -- never a fresh routing call. Null when there isn't enough stored
+         * data (legacy pool/member, no route geometry, no pickup coordinates) to estimate it.
+         */
+        private LocalDateTime approxPickupTime;
+        /** True whenever {@link #approxPickupTime} is populated -- always an ESTIMATE, never exact. */
+        private boolean pickupTimeApproximate;
+
+        public PassengerDetailResponse() {}
+
+        public String getUserName() { return userName; }
+        public void setUserName(String userName) { this.userName = userName; }
+        public String getPickupLocation() { return pickupLocation; }
+        public void setPickupLocation(String pickupLocation) { this.pickupLocation = pickupLocation; }
+        public Double getPickupLatitude() { return pickupLatitude; }
+        public void setPickupLatitude(Double pickupLatitude) { this.pickupLatitude = pickupLatitude; }
+        public Double getPickupLongitude() { return pickupLongitude; }
+        public void setPickupLongitude(Double pickupLongitude) { this.pickupLongitude = pickupLongitude; }
+        public String getDropoffLocation() { return dropoffLocation; }
+        public void setDropoffLocation(String dropoffLocation) { this.dropoffLocation = dropoffLocation; }
+        public Double getDropoffLatitude() { return dropoffLatitude; }
+        public void setDropoffLatitude(Double dropoffLatitude) { this.dropoffLatitude = dropoffLatitude; }
+        public Double getDropoffLongitude() { return dropoffLongitude; }
+        public void setDropoffLongitude(Double dropoffLongitude) { this.dropoffLongitude = dropoffLongitude; }
+        public String getPhoneNumber() { return phoneNumber; }
+        public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+        public Double getFare() { return fare; }
+        public void setFare(Double fare) { this.fare = fare; }
+        public Double getPassengerDistanceMeters() { return passengerDistanceMeters; }
+        public void setPassengerDistanceMeters(Double passengerDistanceMeters) { this.passengerDistanceMeters = passengerDistanceMeters; }
+        public LocalDateTime getJoinedAt() { return joinedAt; }
+        public void setJoinedAt(LocalDateTime joinedAt) { this.joinedAt = joinedAt; }
+        public LocalDateTime getApproxPickupTime() { return approxPickupTime; }
+        public void setApproxPickupTime(LocalDateTime approxPickupTime) { this.approxPickupTime = approxPickupTime; }
+        public boolean isPickupTimeApproximate() { return pickupTimeApproximate; }
+        public void setPickupTimeApproximate(boolean pickupTimeApproximate) { this.pickupTimeApproximate = pickupTimeApproximate; }
     }
 }

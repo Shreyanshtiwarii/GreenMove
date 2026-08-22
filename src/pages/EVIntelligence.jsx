@@ -438,10 +438,6 @@ export default function EVIntelligence() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
-        // Log the raw device coordinates exactly as returned by getCurrentPosition, before
-        // any reverse-geocoding happens — these are the values that drive routing, never
-        // anything derived from the display address.
-        console.log('[EVIntelligence] Raw geolocation coordinates:', { latitude, longitude });
         try {
           const placeName = await reverseGeocode(longitude, latitude);
           const loc = { name: placeName || 'Current Location', lat: latitude, lng: longitude };

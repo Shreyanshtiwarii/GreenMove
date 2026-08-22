@@ -53,6 +53,35 @@ public class VehiclePoolMemberEntity {
     @Column(name = "dropoff_geom", columnDefinition = "geometry(Point, 4326)")
     private org.locationtech.jts.geom.Point dropoffGeom;
 
+    // =========================================================================
+    //  Phase 2 - Passenger Join flow (confirmation modal)
+    // =========================================================================
+
+    /** Passenger's contact phone number, collected in the join confirmation modal. */
+    @Column(name = "phone_number", length = 32)
+    private String phoneNumber;
+
+    /**
+     * Driver's rate/km at the moment this passenger joined, recalculated authoritatively
+     * server-side (never trusted from the frontend). Stored for audit/history purposes.
+     */
+    @Column(name = "rate_per_km")
+    private Double ratePerKm;
+
+    /**
+     * This passenger's own pickup->dropoff distance, recalculated authoritatively
+     * server-side at join time.
+     */
+    @Column(name = "passenger_route_distance_meters")
+    private Double passengerRouteDistanceMeters;
+
+    /**
+     * This passenger's fare, recalculated authoritatively server-side at join time
+     * (ratePerKm * passengerRouteDistanceKm). Never derived from a client-supplied value.
+     */
+    @Column(name = "passenger_fare")
+    private Double passengerFare;
+
     public VehiclePoolMemberEntity() {}
 
     public String getId() { return id; }
@@ -87,4 +116,13 @@ public class VehiclePoolMemberEntity {
     public void setDropoffLng(Double dropoffLng) { this.dropoffLng = dropoffLng; }
     public org.locationtech.jts.geom.Point getDropoffGeom() { return dropoffGeom; }
     public void setDropoffGeom(org.locationtech.jts.geom.Point dropoffGeom) { this.dropoffGeom = dropoffGeom; }
+
+    public String getPhoneNumber() { return phoneNumber; }
+    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+    public Double getRatePerKm() { return ratePerKm; }
+    public void setRatePerKm(Double ratePerKm) { this.ratePerKm = ratePerKm; }
+    public Double getPassengerRouteDistanceMeters() { return passengerRouteDistanceMeters; }
+    public void setPassengerRouteDistanceMeters(Double passengerRouteDistanceMeters) { this.passengerRouteDistanceMeters = passengerRouteDistanceMeters; }
+    public Double getPassengerFare() { return passengerFare; }
+    public void setPassengerFare(Double passengerFare) { this.passengerFare = passengerFare; }
 }

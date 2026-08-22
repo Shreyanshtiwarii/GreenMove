@@ -382,10 +382,6 @@ export default function PlanRoute() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
-        // Log the raw device coordinates exactly as returned by getCurrentPosition, before
-        // any reverse-geocoding happens — these are the values that drive routing, never
-        // anything derived from the display address.
-        console.log('[PlanRoute] Raw geolocation coordinates:', { latitude, longitude });
         try {
           // reverseGeocode(lng, lat) returns a display-name string only; the actual
           // route origin must stay pinned to the exact device coordinates returned
