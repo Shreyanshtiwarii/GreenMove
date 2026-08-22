@@ -50,6 +50,23 @@ public class AuthDTOs {
         public void setPassword(String password) { this.password = password; }
     }
 
+    public static class VerifyEmailRequest {
+        @NotBlank(message = "Verification token is required")
+        private String token;
+
+        public String getToken() { return token; }
+        public void setToken(String token) { this.token = token; }
+    }
+
+    public static class ResendVerificationRequest {
+        @NotBlank(message = "Email is required")
+        @Email(message = "Enter a valid email address")
+        private String email;
+
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+    }
+
     public static class GoogleAuthRequest {
         @NotBlank(message = "Google credential token is required")
         private String idToken;
@@ -64,13 +81,15 @@ public class AuthDTOs {
         private String email;
         private String role;
         private String authProvider;
+        private boolean emailVerified;
 
-        public UserSummary(String id, String name, String email, String role, String authProvider) {
+        public UserSummary(String id, String name, String email, String role, String authProvider, boolean emailVerified) {
             this.id = id;
             this.name = name;
             this.email = email;
             this.role = role;
             this.authProvider = authProvider;
+            this.emailVerified = emailVerified;
         }
 
         public String getId() { return id; }
@@ -78,6 +97,7 @@ public class AuthDTOs {
         public String getEmail() { return email; }
         public String getRole() { return role; }
         public String getAuthProvider() { return authProvider; }
+        public boolean isEmailVerified() { return emailVerified; }
     }
 
     public static class AuthResponse {
@@ -91,5 +111,23 @@ public class AuthDTOs {
 
         public String getToken() { return token; }
         public UserSummary getUser() { return user; }
+    }
+
+    /**
+     * Returned by POST /auth/register. Deliberately carries no JWT: the flow is
+     * Signup -> unverified user created -> verification email sent -> user verifies -> user logs in,
+     * so nobody is authenticated yet at this point.
+     */
+    public static class SignupResponse {
+        private String message;
+        private String email;
+
+        public SignupResponse(String message, String email) {
+            this.message = message;
+            this.email = email;
+        }
+
+        public String getMessage() { return message; }
+        public String getEmail() { return email; }
     }
 }

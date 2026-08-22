@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import GoogleSignInButton from '../components/GoogleSignInButton';
+import { resendVerificationEmail } from '../services/authService';
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -16,6 +17,10 @@ export default function SignUp() {
   const [formError, setFormError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  // Set once signup succeeds - swaps the form out for a "check your email" screen, since
+  // accounts start unverified and can't log in until the emailed link is confirmed.
+  const [signupResult, setSignupResult] = useState(null);
+  const [resendState, setResendState] = useState('idle'); // 'idle' | 'sending' | 'sent'
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -60,12 +65,25 @@ export default function SignUp() {
 
     setLoading(true);
     try {
-      await register(form.name.trim(), form.email.trim(), form.password, form.confirmPassword);
-      navigate('/dashboard', { replace: true });
+      const result = await register(form.name.trim(), form.email.trim(), form.password, form.confirmPassword);
+      setSignupResult(result);
     } catch (err) {
       setFormError(err.message || 'Unable to create your account. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!signupResult?.email) return;
+    setResendState('sending');
+    try {
+      await resendVerificationEmail(signupResult.email);
+    } catch {
+      // Resend intentionally always looks successful to the caller (see backend), so this
+      // catch is just a safety net for network errors.
+    } finally {
+      setResendState('sent');
     }
   };
 
@@ -89,6 +107,29 @@ export default function SignUp() {
         <span className="font-headline-md text-headline-md text-primary tracking-tight">GreenMove</span>
       </Link>
 
+      {signupResult ? (
+        <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 md:p-8 shadow-md text-center">
+          <span className="material-symbols-outlined text-4xl text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>mark_email_read</span>
+          <h1 className="text-headline-md font-headline-md text-on-surface font-bold mt-4">Check your email</h1>
+          <p className="text-body-md text-on-surface-variant mt-2">{signupResult.message}</p>
+
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendState === 'sending'}
+            className="mt-6 w-full bg-surface-container-low border border-outline-variant text-on-surface font-label-sm py-3 rounded-xl hover:bg-surface-container transition-colors font-semibold disabled:opacity-70"
+          >
+            {resendState === 'sent' ? 'Verification email sent' : resendState === 'sending' ? 'Sending...' : "Didn't get it? Resend link"}
+          </button>
+
+          <Link
+            to="/signin"
+            className="mt-3 inline-block w-full bg-primary text-on-primary font-label-sm py-3 rounded-xl hover:bg-primary/90 transition-colors shadow-sm font-semibold"
+          >
+            Go to sign in
+          </Link>
+        </div>
+      ) : (
       <div className="w-full max-w-md bg-surface-container-lowest border border-outline-variant rounded-2xl p-6 md:p-8 shadow-md">
         <div className="mb-6 text-center">
           <h1 className="text-headline-md font-headline-md text-on-surface font-bold">Create your account</h1>
@@ -199,6 +240,7 @@ export default function SignUp() {
           </Link>
         </p>
       </div>
+      )}
     </div>
   );
 }

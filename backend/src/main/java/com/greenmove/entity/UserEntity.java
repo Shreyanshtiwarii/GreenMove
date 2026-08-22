@@ -37,6 +37,27 @@ public class UserEntity {
     @Column(name = "google_id")
     private String googleId;
 
+    @Column(name = "pending_email")
+    private String pendingEmail;
+
+    @Column(name = "email_change_token")
+    private String emailChangeToken;
+
+    @Column(name = "email_change_token_expires_at")
+    private Instant emailChangeTokenExpiresAt;
+
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
+    @Column(name = "verification_token")
+    private String verificationToken;
+
+    @Column(name = "verification_token_expires_at")
+    private Instant verificationTokenExpiresAt;
+
+    @Column(name = "verification_sent_at")
+    private Instant verificationSentAt;
+
     public UserEntity() {}
 
     public UserEntity(String id, String name, String email, String role, String status, String joinedDate, String lastActive) {
@@ -92,4 +113,25 @@ public class UserEntity {
 
     public String getGoogleId() { return googleId; }
     public void setGoogleId(String googleId) { this.googleId = googleId; }
+
+    public String getPendingEmail() { return pendingEmail; }
+    public void setPendingEmail(String pendingEmail) { this.pendingEmail = pendingEmail; }
+
+    public String getEmailChangeToken() { return emailChangeToken; }
+    public void setEmailChangeToken(String emailChangeToken) { this.emailChangeToken = emailChangeToken; }
+
+    public Instant getEmailChangeTokenExpiresAt() { return emailChangeTokenExpiresAt; }
+    public void setEmailChangeTokenExpiresAt(Instant emailChangeTokenExpiresAt) { this.emailChangeTokenExpiresAt = emailChangeTokenExpiresAt; }
+
+    public boolean isEmailVerified() { return emailVerified; }
+    public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+
+    public String getVerificationToken() { return verificationToken; }
+    public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
+
+    public Instant getVerificationTokenExpiresAt() { return verificationTokenExpiresAt; }
+    public void setVerificationTokenExpiresAt(Instant verificationTokenExpiresAt) { this.verificationTokenExpiresAt = verificationTokenExpiresAt; }
+
+    public Instant getVerificationSentAt() { return verificationSentAt; }
+    public void setVerificationSentAt(Instant verificationSentAt) { this.verificationSentAt = verificationSentAt; }
 }

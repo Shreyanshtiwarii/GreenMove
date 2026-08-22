@@ -13,4 +13,10 @@ public interface UserRepository extends JpaRepository<UserEntity, String> {
     Optional<UserEntity> findByGoogleId(String googleId);
     boolean existsByEmailIgnoreCase(String email);
     long countByStatus(String status);
+
+    // Used to complete the "Change Email" verification link in Phase 2.
+    Optional<UserEntity> findByEmailChangeToken(String emailChangeToken);
+
+    // Used to confirm signup email verification links (Phase 2).
+    Optional<UserEntity> findByVerificationToken(String verificationToken);
 }
