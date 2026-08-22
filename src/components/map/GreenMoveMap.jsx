@@ -1,6 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// MapLibre GL JS v6 is ESM-only and loads its vector-tile worker from a separate file at
+// runtime. Bundlers (including Vite) cannot auto-resolve that worker URL, so without this
+// one-time setWorkerUrl() call the worker request 404s silently: the style's background
+// layer still renders (hence a flat, blank-colored map) but vector tile data (streets,
+// labels) never loads, and since the map can be left waiting on tile requests that never
+// resolve, 'load' may never fire either — which also prevents markers/route rendering,
+// since those are gated behind the mapLoaded flag. The '?worker&url' query (not plain
+// '?url') is required so Vite emits a self-contained worker chunk that includes the
+// worker's sibling module rather than a bare file that fails on its first import.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+if (typeof maplibregl.setWorkerUrl === 'function') {
+  maplibregl.setWorkerUrl(maplibreWorkerUrl);
+}
 
 // Default center: Bangalore
 const DEFAULT_CENTER = [77.5946, 12.9716];
@@ -43,7 +57,16 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       resizeObserver.observe(mapContainerRef.current);
     }
 
+    // Safety net: if the map's 'load' event never fires (e.g. the MapTiler key/style
+    // request is blocked, restricted to a different domain, or times out) the map would
+    // otherwise stay silently blank forever with no marker/route rendering and no visible
+    // error. Surface a clear message instead so this failure mode is never invisible.
+    const loadTimeoutId = setTimeout(() => {
+      setMapError("Map failed to load in time. This usually means the MapTiler API key is invalid, expired, or not allow-listed for this domain. Check your VITE_MAPTILER_API_KEY configuration and the key's allowed origins in the MapTiler dashboard.");
+    }, 10000);
+
     map.on('load', () => {
+      clearTimeout(loadTimeoutId);
       map.resize();
       setTimeout(() => map?.resize(), 100);
       setTimeout(() => map?.resize(), 500);
@@ -54,14 +77,22 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
     map.on('error', (e) => {
       console.error("MapLibre error encountered:", e);
       const msg = e && e.error && e.error.message ? e.error.message : '';
-      if (msg.includes('403') || msg.includes('Forbidden') || msg.includes('Key usage restricted')) {
-        setMapError("MapTiler 403 Forbidden: Key usage restricted or origin mismatch.");
+      const status = e && e.error && e.error.status ? e.error.status : null;
+      if (msg.includes('403') || status === 403 || msg.includes('Forbidden') || msg.includes('Key usage restricted')) {
+        setMapError("MapTiler 403 Forbidden: the API key is invalid or this domain isn't allow-listed for it. Check VITE_MAPTILER_API_KEY and the key's allowed origins in the MapTiler dashboard.");
+      } else if (msg.includes('401') || status === 401 || msg.toLowerCase().includes('unauthorized')) {
+        setMapError("MapTiler 401 Unauthorized: the API key is missing or invalid. Check VITE_MAPTILER_API_KEY.");
       } else if (msg) {
         setMapError(`Map loading error: ${msg}`);
+      } else {
+        // Even when MapLibre doesn't attach a readable message (common for blocked/CORS
+        // network failures), still surface something actionable rather than staying silent.
+        setMapError("Map failed to load a required resource. Check your network connection, ad blockers/CORS, and that VITE_MAPTILER_API_KEY is valid for this domain.");
       }
     });
 
     return () => {
+      clearTimeout(loadTimeoutId);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }

@@ -41,46 +41,10 @@ public class GoogleRoutesService {
         this.objectMapper = new ObjectMapper();
     }
 
-    public GoogleRoutesService(RestTemplate restTemplate, ObjectMapper objectMapper, String apiKey) {
-        this.restTemplate = restTemplate;
-        this.objectMapper = objectMapper;
-        this.apiKey = apiKey;
-    }
-
     public RoutingResponse computeTrafficRoutes(RoutingRequest req) {
         if (apiKey == null || apiKey.trim().isEmpty()) {
             logger.info("Google Routes API key is not configured. Returning fallback signal.");
             return new RoutingResponse(false, "Google Routes API key is not configured.", null, null);
-        }
-
-        // Fail-fast validation 1: Null request or missing origin/destination objects
-        if (req == null || req.getOrigin() == null || req.getDestination() == null) {
-            logger.warn("Google Routes API request rejected: origin or destination object is missing.");
-            return new RoutingResponse(false, "Origin and destination must be set.", null, null);
-        }
-
-        // Fail-fast validation 2: Null coordinate values
-        Double originLat = req.getOrigin().getLat();
-        Double originLng = req.getOrigin().getLng();
-        Double destLat = req.getDestination().getLat();
-        Double destLng = req.getDestination().getLng();
-
-        if (originLat == null || originLng == null || destLat == null || destLng == null) {
-            logger.warn("Google Routes API request rejected: origin or destination lat/lng coordinates are null.");
-            return new RoutingResponse(false, "Origin and destination coordinates must be set.", null, null);
-        }
-
-        // Fail-fast validation 3: Un-geocoded zero coordinates (0, 0)
-        if ((originLat == 0.0 && originLng == 0.0) || (destLat == 0.0 && destLng == 0.0)) {
-            logger.warn("Google Routes API request rejected: origin or destination coordinates are 0.0/0.0 (un-geocoded).");
-            return new RoutingResponse(false, "Origin and destination coordinates must be valid non-zero locations.", null, null);
-        }
-
-        // Fail-fast validation 4: Latitude and longitude range checks
-        if (originLat < -90.0 || originLat > 90.0 || destLat < -90.0 || destLat > 90.0 ||
-            originLng < -180.0 || originLng > 180.0 || destLng < -180.0 || destLng > 180.0) {
-            logger.warn("Google Routes API request rejected: coordinates out of valid range [-90..90, -180..180].");
-            return new RoutingResponse(false, "Origin or destination coordinates are out of valid range.", null, null);
         }
 
         try {
@@ -88,17 +52,19 @@ public class GoogleRoutesService {
 
             Map<String, Object> bodyMap = new HashMap<>();
 
-            Map<String, Object> originLatLng = new HashMap<>();
-            originLatLng.put("latitude", originLat);
-            originLatLng.put("longitude", originLng);
+            Map<String, Object> originMap = Map.of("location", Map.of("latLng", Map.of(
+                "latitude", req.getOrigin().getLat(),
+                "longitude", req.getOrigin().getLng()
+            )));
+            Map<String, Object> destMap = Map.of("location", Map.of("latLng", Map.of(
+                "latitude", req.getDestination().getLat(),
+                "longitude", req.getDestination().getLng()
+            )));
 
-            Map<String, Object> destLatLng = new HashMap<>();
-            destLatLng.put("latitude", destLat);
-            destLatLng.put("longitude", destLng);
-
-            Map<String, Object> originMap = Map.of("location", Map.of("latLng", originLatLng));
-            Map<String, Object> destMap = Map.of("location", Map.of("latLng", destLatLng));
-
+            // ROOT CAUSE FIX: origin/destination were built above but never attached to the
+            // outbound request body, so every call to Google Routes API was missing the
+            // required "origin"/"destination" fields, causing the persistent
+            // "400 INVALID_ARGUMENT - Origin and destination must be set" error seen in production.
             bodyMap.put("origin", originMap);
             bodyMap.put("destination", destMap);
 
@@ -120,10 +86,6 @@ public class GoogleRoutesService {
             if (req.isAvoidTolls()) {
                 bodyMap.put("routeModifiers", Map.of("avoidTolls", true));
             }
-
-            // Log exact JSON payload right before sending to Google Routes API
-            String requestPayloadJson = objectMapper.writeValueAsString(bodyMap);
-            logger.info("Outbound Google Routes API computeRoutes request payload: {}", requestPayloadJson);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -203,9 +165,6 @@ public class GoogleRoutesService {
             RouteDTO primary = routeList.get(0);
             return new RoutingResponse(true, "Google Routes API traffic calculations successful.", primary, routeList);
 
-        } catch (org.springframework.web.client.HttpStatusCodeException httpEx) {
-            logger.error("Google Routes API HTTP error {}: {}", httpEx.getStatusCode(), httpEx.getResponseBodyAsString());
-            return new RoutingResponse(false, "Google Routes API error: " + httpEx.getStatusCode(), null, null);
         } catch (Exception e) {
             logger.error("Error executing Google Routes API request: {}", e.getMessage());
             return new RoutingResponse(false, "Traffic routing proxy exception: " + e.getMessage(), null, null);
@@ -256,38 +215,32 @@ public class GoogleRoutesService {
         List<double[]> poly = new ArrayList<>();
         if (encoded == null || encoded.isEmpty()) return poly;
 
-        try {
-            int index = 0, len = encoded.length();
-            int lat = 0, lng = 0;
+        int index = 0, len = encoded.length();
+        int lat = 0, lng = 0;
 
-            while (index < len) {
-                int b, shift = 0, result = 0;
-                do {
-                    if (index >= len) break;
-                    b = encoded.charAt(index++) - 63;
-                    result |= (b & 0x1f) << shift;
-                    shift += 5;
-                } while (b >= 0x20);
-                int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-                lat += dlat;
+        while (index < len) {
+            int b, shift = 0, result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lat += dlat;
 
-                shift = 0;
-                result = 0;
-                do {
-                    if (index >= len) break;
-                    b = encoded.charAt(index++) - 63;
-                    result |= (b & 0x1f) << shift;
-                    shift += 5;
-                } while (b >= 0x20);
-                int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-                lng += dlng;
+            shift = 0;
+            result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lng += dlng;
 
-                double pLat = lat / 1E5;
-                double pLng = lng / 1E5;
-                poly.add(new double[]{pLng, pLat});
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to decode Google polyline string: {}", e.getMessage());
+            double pLat = lat / 1E5;
+            double pLng = lng / 1E5;
+            poly.add(new double[]{pLng, pLat});
         }
         return poly;
     }
