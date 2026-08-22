@@ -19,7 +19,7 @@ if (typeof maplibregl.setWorkerUrl === 'function') {
 // Default center: Bangalore
 const DEFAULT_CENTER = [77.5946, 12.9716];
 
-export default function GreenMoveMap({ origin, destination, route, evStations = [], onRecenterRef }) {
+export default function GreenMoveMap({ origin, destination, route, evStations = [], unsafeSegment = null, onRecenterRef }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   
@@ -179,9 +179,23 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
             ? `<span class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-white text-emerald-700 border border-emerald-600 text-[10px] font-bold flex items-center justify-center shadow-sm">${st.stopNumber}</span>`
             : '';
 
+          // Optional star badge marking a station the EV Intelligence charging-plan
+          // algorithm recommends as a stop (Phase 3/4: ⭐ Recommended charging stops).
+          // Purely additive: callers that don't pass isRecommended render exactly as before.
+          const recommendedBadge = (st.isRecommended && !hasStopNumber)
+            ? `<span class="absolute -top-1.5 -right-1.5 w-[18px] h-[18px] rounded-full bg-amber-400 border border-white text-white text-[10px] flex items-center justify-center shadow-sm">★</span>`
+            : '';
+
+          // A station is rendered in red when it is the last reachable point beyond which
+          // the route becomes unsafe (Phase 4: 🔴 unsafe segment marker). Purely additive:
+          // callers that don't pass `unsafe` render the existing emerald marker as before.
+          const markerColorClass = st.unsafe
+            ? 'bg-error'
+            : (st.isRecommended || hasStopNumber ? 'bg-emerald-600' : 'bg-emerald-600');
+
           const evEl = document.createElement('div');
-          evEl.className = 'relative w-8 h-8 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-110 transition-transform';
-          evEl.innerHTML = `<span class="material-symbols-outlined text-sm">ev_station</span>${stopBadge}`;
+          evEl.className = `relative w-8 h-8 rounded-full ${markerColorClass} border-2 border-white text-white flex items-center justify-center shadow-lg cursor-pointer hover:scale-110 transition-transform`;
+          evEl.innerHTML = `<span class="material-symbols-outlined text-sm">ev_station</span>${stopBadge}${recommendedBadge}`;
 
           const connSummary = Array.isArray(st.connectors) && st.connectors.length > 0
             ? st.connectors.map(c => `${c.powerKw || 22} kW (${c.connectorType || 'Plug'})`).join(', ')
@@ -189,12 +203,33 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
 
           const stopLabel = hasStopNumber ? `Stop ${st.stopNumber}: ` : '';
 
+          // Optional richer recommendation/safety details (Phase 3), shown in the popup only
+          // when the caller supplies them — purely additive, existing callers (e.g. Plan
+          // Route) that pass plain station objects render exactly the same popup as before.
+          const hasRecommendationDetails = st.reason || typeof st.rangeOnArrivalKm === 'number' || typeof st.nextStationDistanceKm === 'number';
+          const safetyLine = st.safetyStatus === 'unsafe'
+            ? `<div style="font-size: 11px; font-weight: 700; color: #ba1a1a; margin-bottom: 4px;">🔴 Not Safe beyond this point</div>`
+            : (st.safetyStatus === 'safe'
+                ? `<div style="font-size: 11px; font-weight: 700; color: #047857; margin-bottom: 4px;">🟢 Safe — next charger in range</div>`
+                : '');
+          const recommendationDetails = hasRecommendationDetails
+            ? `
+              <div style="font-size: 10px; color: #374151; margin-top: 4px; border-top: 1px solid #e5e7eb; padding-top: 4px;">
+                ${typeof st.rangeOnArrivalKm === 'number' ? `<div>Range on arrival: <strong>~${st.rangeOnArrivalKm} km</strong></div>` : ''}
+                ${typeof st.nextStationDistanceKm === 'number' ? `<div>Next stop (${st.nextStationLabel || 'onward'}): <strong>${st.nextStationDistanceKm} km</strong></div>` : ''}
+                ${st.reason ? `<div style="margin-top:2px;">${st.reason}</div>` : ''}
+              </div>
+            `
+            : '';
+
           const popupContent = `
-            <div style="font-family: system-ui, sans-serif; padding: 4px; max-width: 220px;">
+            <div style="font-family: system-ui, sans-serif; padding: 4px; max-width: 240px;">
               <div style="font-weight: bold; font-size: 13px; color: #004100; margin-bottom: 4px;">${stopLabel}${st.name}</div>
               <div style="font-size: 11px; color: #4b5563; margin-bottom: 6px;">${st.address || st.city}</div>
+              ${safetyLine}
               <div style="font-size: 11px; font-weight: 600; color: #059669; margin-bottom: 4px;">⚡ ${st.distanceFromRouteKm ? `${st.distanceFromRouteKm} km from route` : 'Along route'}</div>
-              <div style="font-size: 10px; color: #6b7280; margin-bottom: 6px;">${connSummary}</div>
+              <div style="font-size: 10px; color: #6b7280;">${connSummary}</div>
+              ${recommendationDetails}
               <div style="font-size: 9px; color: #9ca3af; border-top: 1px solid #e5e7eb; pt: 4px; mt: 4px;">${st.attribution || 'Data provided by Open Charge Map'}</div>
             </div>
           `;
@@ -291,6 +326,41 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
       }
     }
 
+    // 4b. Unsafe Segment Overlay (Phase 4: 🔴 highlight the portion of the route beyond
+    // which the vehicle cannot safely reach the next charger). Purely additive — only
+    // drawn when the caller supplies an `unsafeSegment` coordinate array; existing callers
+    // (e.g. Plan Route) that don't pass this prop render exactly as before.
+    const unsafeSourceId = 'unsafe-segment-source';
+    const unsafeLayerId = 'unsafe-segment-layer';
+
+    if (!unsafeSegment || !Array.isArray(unsafeSegment) || unsafeSegment.length < 2) {
+      if (map.getLayer(unsafeLayerId)) map.removeLayer(unsafeLayerId);
+      if (map.getSource(unsafeSourceId)) map.removeSource(unsafeSourceId);
+    } else {
+      const unsafeGeojson = {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: unsafeSegment }
+      };
+      const existingUnsafeSource = map.getSource(unsafeSourceId);
+      if (existingUnsafeSource) {
+        existingUnsafeSource.setData(unsafeGeojson);
+      } else {
+        map.addSource(unsafeSourceId, { type: 'geojson', data: unsafeGeojson });
+        map.addLayer({
+          id: unsafeLayerId,
+          type: 'line',
+          source: unsafeSourceId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#ba1a1a',
+            'line-width': 6,
+            'line-dasharray': [0.5, 1.5]
+          }
+        });
+      }
+    }
+
     // 5. Fit Bounds / Centering Behavior
     if (route && route.geometry && route.geometry.coordinates) {
       const coords = route.geometry.coordinates;
@@ -312,7 +382,7 @@ export default function GreenMoveMap({ origin, destination, route, evStations = 
         map.flyTo({ center: [destination.lng, destination.lat], zoom: 14, duration: 1000 });
       }
     }
-  }, [mapLoaded, origin, destination, route, evStations]);
+  }, [mapLoaded, origin, destination, route, evStations, unsafeSegment]);
 
   // Wire recenter triggers to the parent
   useEffect(() => {

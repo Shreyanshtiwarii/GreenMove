@@ -107,9 +107,22 @@ function describeStationAvailability(station) {
  * always choosing the farthest reachable station at each point to maximize progress and
  * minimize the number of stops (classic greedy "minimum refueling stops" strategy, assuming
  * a full recharge at each stop).
+ *
+ * Also returns an explicit Phase 3 safety explanation (🔴 Not Safe / 🟢 Safe) and, when the
+ * trip is not feasible, the exact unsafe segment (start position + reason) so it can be
+ * highlighted on the map.
  */
 function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availableRangeKm) {
   const usableRangeKm = Math.max(availableRangeKm - SAFETY_MARGIN_KM, 0);
+
+  // Finds the nearest station beyond a given route position, reachable or not, purely to
+  // explain *why* a segment is unsafe (e.g. "the next available charger is 200 km away").
+  const findNextStationLabel = (fromKm, candidates) => {
+    const ahead = candidates.filter((s) => s.distanceAlongRouteKm > fromKm);
+    if (ahead.length === 0) return null;
+    ahead.sort((a, b) => a.distanceAlongRouteKm - b.distanceAlongRouteKm);
+    return ahead[0];
+  };
 
   // Case 1: Destination is directly reachable on the current charge — no stop required.
   if (totalDistanceKm <= usableRangeKm) {
@@ -118,7 +131,9 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
       needsCharging: false,
       stops: [],
       usableRangeKm: Math.round(usableRangeKm),
-      summary: `Destination is within your available range (${Math.round(usableRangeKm)} km usable after a ${SAFETY_MARGIN_KM} km safety reserve). No charging stop required.`
+      summary: `Destination is within your available range (${Math.round(usableRangeKm)} km usable after a ${SAFETY_MARGIN_KM} km safety reserve). No charging stop required.`,
+      safetyStatus: 'safe',
+      safetyExplanation: `🟢 Safe: Your destination (${Math.round(totalDistanceKm)} km away) is within your estimated available range (~${Math.round(usableRangeKm)} km). No charging stop is required.`
     };
   }
 
@@ -136,7 +151,10 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
         needsCharging: true,
         stops,
         usableRangeKm: Math.round(usableRangeKm),
-        summary: 'Route requires too many charging stops to plan reliably from current station data. Please review manually.'
+        summary: 'Route requires too many charging stops to plan reliably from current station data. Please review manually.',
+        safetyStatus: 'unsafe',
+        safetyExplanation: '🔴 Not Safe: This route requires too many charging stops to plan reliably from current station data. Please review manually.',
+        unsafeSegmentStartKm: currentPosKm
       };
     }
 
@@ -145,14 +163,27 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
     );
 
     if (reachable.length === 0) {
+      const nextStation = findNextStationLabel(currentPosKm, candidates);
+      const nextTargetLabel = nextStation ? nextStation.name : null;
+      const nextTargetDistanceKm = nextStation
+        ? Number((nextStation.distanceAlongRouteKm - currentPosKm).toFixed(1))
+        : Number((totalDistanceKm - currentPosKm).toFixed(1));
+      const remainingRangeKm = Math.round(usableRangeKm);
+
       return {
         feasible: false,
         needsCharging: true,
         stops,
-        usableRangeKm: Math.round(usableRangeKm),
+        usableRangeKm: remainingRangeKm,
         summary: stops.length > 0
           ? `No further charging station is within reach after Stop ${stops.length}. Destination cannot currently be reached with available station data.`
-          : 'No charging station is within reach of your available range. Destination cannot currently be reached with available station data.'
+          : 'No charging station is within reach of your available range. Destination cannot currently be reached with available station data.',
+        safetyStatus: 'unsafe',
+        safetyExplanation: `🔴 Not Safe: Your estimated remaining range at this point is ${remainingRangeKm} km, but the ${nextStation ? 'next available EV charging station' : 'destination'} (${nextTargetLabel || 'destination'}) is ${nextTargetDistanceKm} km away. You may run out of battery before reaching ${nextStation ? 'a charger' : 'your destination'}.`,
+        unsafeSegmentStartKm: currentPosKm,
+        unsafeNextTargetLabel: nextTargetLabel,
+        unsafeNextTargetDistanceKm: nextTargetDistanceKm,
+        unsafeRemainingRangeKm: remainingRangeKm
       };
     }
 
@@ -161,11 +192,13 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
     const chosen = reachable[0];
     const legDistanceKm = Number((chosen.distanceAlongRouteKm - currentPosKm).toFixed(1));
     const remainingToDestinationKm = Number((totalDistanceKm - chosen.distanceAlongRouteKm).toFixed(1));
+    const rangeOnArrivalKm = Math.max(Number((usableRangeKm - legDistanceKm).toFixed(1)), 0);
 
     stops.push({
       ...chosen,
       stopNumber: stops.length + 1,
       legDistanceFromPrevKm: legDistanceKm,
+      rangeOnArrivalKm,
       reachableRangeFromStopKm: Math.round(usableRangeKm),
       remainingToDestinationKm,
       reason: remainingToDestinationKm <= usableRangeKm
@@ -177,12 +210,24 @@ function planEVChargingRoute(totalDistanceKm, stationsSortedByRoutePos, availabl
     candidates = candidates.filter((s) => s.distanceAlongRouteKm > currentPosKm);
   }
 
+  // Post-process: attach "distance to next charging station" (or Destination, for the last
+  // stop) to every recommended stop, matching the Phase 3 per-stop reporting requirement.
+  stops.forEach((stop, idx) => {
+    const next = stops[idx + 1];
+    stop.nextTargetLabel = next ? next.name : 'Destination';
+    stop.nextTargetDistanceKm = next
+      ? Number((next.distanceAlongRouteKm - stop.distanceAlongRouteKm).toFixed(1))
+      : stop.remainingToDestinationKm;
+  });
+
   return {
     feasible: true,
     needsCharging: true,
     stops,
     usableRangeKm: Math.round(usableRangeKm),
-    summary: `Destination is reachable after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`
+    summary: `Destination is reachable after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`,
+    safetyStatus: 'safe',
+    safetyExplanation: `🟢 Safe: The recommended charging sequence keeps every leg within your estimated available range (~${Math.round(usableRangeKm)} km), reaching your destination after ${stops.length} charging stop${stops.length > 1 ? 's' : ''}.`
   };
 }
 
@@ -193,6 +238,7 @@ export default function EVIntelligence() {
 
   const [journeys, setJourneys] = useState([]);
   const [batteryPct, setBatteryPct] = useState(45); // Dynamic user battery input slider (10% to 100%)
+  const [vehicleRangeKm, setVehicleRangeKm] = useState(340); // User-provided full-charge vehicle range (km)
 
   // Same-page EV Route Planner States
   const [selectedStops, setSelectedStops] = useState([]); // Array of selected station objects
@@ -453,9 +499,8 @@ export default function EVIntelligence() {
   const routeOriginLat = currentLocation.lat;
   const routeOriginLng = currentLocation.lng;
 
-  // Calculate EV Battery Feasibility dynamically
-  const MAX_RANGE_KM = 340;
-  const currentRangeKm = Math.round((batteryPct / 100) * MAX_RANGE_KM);
+  // Calculate EV Battery Feasibility dynamically from the user-provided vehicle range input
+  const currentRangeKm = Math.round((batteryPct / 100) * vehicleRangeKm);
   const routeDistanceKm = evRoute
     ? evRoute.distanceKmNum
     : (plannedRoute
@@ -486,6 +531,39 @@ export default function EVIntelligence() {
       .sort((a, b) => a.distanceAlongRouteKm - b.distanceAlongRouteKm);
   }, [routeGeometry, routeStations]);
 
+  // Per-station progressive range analysis: for every station along the route, calculates
+  // (a) distance from the current position, (b) the estimated remaining range if the vehicle
+  // arrives there without charging, (c) the distance onward to the next reachable charging
+  // station (or the destination, if it is the last station), and (d) whether that next target
+  // is actually reachable on a full recharge here. This powers the per-station "Reachable" /
+  // "NOT SAFE" indicators shown in the Optimal Charging Stops list.
+  const stationSafetyAnalysis = useMemo(() => {
+    if (!destination || !annotatedRouteStations.length) return {};
+    const usableRangeKm = Math.max(vehicleRangeKm - SAFETY_MARGIN_KM, 0);
+    const map = {};
+
+    annotatedRouteStations.forEach((st, idx) => {
+      const distanceFromCurrentKm = st.distanceAlongRouteKm;
+      const remainingRangeAtArrivalKm = Math.max(Number((currentRangeKm - distanceFromCurrentKm).toFixed(1)), 0);
+      const next = annotatedRouteStations[idx + 1];
+      const nextTargetDistanceKm = next
+        ? Number((next.distanceAlongRouteKm - st.distanceAlongRouteKm).toFixed(1))
+        : Number((routeGeometry.totalDistanceKm - st.distanceAlongRouteKm).toFixed(1));
+      const nextTargetLabel = next ? next.name : `${destination.name} (Destination)`;
+      const nextTargetReachable = nextTargetDistanceKm <= usableRangeKm;
+
+      map[st.id] = {
+        distanceFromCurrentKm,
+        remainingRangeAtArrivalKm,
+        nextTargetDistanceKm,
+        nextTargetLabel,
+        nextTargetReachable
+      };
+    });
+
+    return map;
+  }, [destination, annotatedRouteStations, currentRangeKm, vehicleRangeKm, routeGeometry]);
+
   // Core EV Intelligence output: whether the destination can be reached on the available
   // range and, if not, the practical sequence of charging stops required to get there.
   const evPlan = useMemo(() => {
@@ -495,6 +573,24 @@ export default function EVIntelligence() {
 
   // Overall feasibility now accounts for reachability via charging stops, not just direct range.
   const isFeasible = (destination && evPlan) ? evPlan.feasible : directFeasible;
+
+  // Phase 4: coordinates of the unsafe portion of the route (from the last reachable point
+  // onward) so it can be drawn as a red overlay on the map when the trip is not feasible.
+  const unsafeSegmentCoords = useMemo(() => {
+    if (!evPlan || evPlan.feasible || typeof evPlan.unsafeSegmentStartKm !== 'number') return null;
+    const { coords, cumDistKm } = routeGeometry;
+    if (!coords.length) return null;
+
+    let startIdx = coords.length - 1;
+    for (let i = 0; i < cumDistKm.length; i++) {
+      if (cumDistKm[i] >= evPlan.unsafeSegmentStartKm) {
+        startIdx = i;
+        break;
+      }
+    }
+    const segment = coords.slice(startIdx);
+    return segment.length >= 2 ? segment : null;
+  }, [evPlan, routeGeometry]);
 
   const feasibilityLabel = (destination && evPlan)
     ? (evPlan.feasible
@@ -514,6 +610,7 @@ export default function EVIntelligence() {
     const energyKwhNeeded = Math.max(2, (evRoute ? evRoute.distanceKmNum : requiredRangeKm) * 0.15);
     const estCostInr = Math.round(energyKwhNeeded * AVERAGE_RATE_INR_PER_KWH);
     const isRecommendedStop = !!(evPlan && evPlan.stops.some((s) => s.id === st.id));
+    const safety = stationSafetyAnalysis[st.id];
 
     return {
       id: st.id,
@@ -527,9 +624,51 @@ export default function EVIntelligence() {
         ? `${st.distanceAlongRouteKm} km along route (${distFromOrigin} km direct)`
         : `${distFromOrigin} km from Origin`,
       cost: `~₹${estCostInr} est.`,
-      isRecommendedStop
+      isRecommendedStop,
+      safety
     };
   });
+
+  // Combined marker set for the map: every discovered charging station along the route (or
+  // near the current location when no destination is set) is plotted, not just the ones the
+  // user has manually added as a stop. Selected/applied stops additionally get a sequence
+  // badge (Stop 1, Stop 2, ...) so the map stays in sync with the Route Preview panel above.
+  // Recommended-but-not-yet-applied stops get a ⭐ badge, and the station beyond which the
+  // route becomes unsafe (when infeasible) is rendered in red — clicking any marker opens a
+  // popup with that station's charging recommendation/safety detail (Phase 4).
+  const mapEvStations = useMemo(() => {
+    return chargingStations
+      .filter((st) => typeof st.lat === 'number' && typeof st.lng === 'number')
+      .map((st) => {
+        const selectedIdx = selectedStops.findIndex((s) => s.id === st.id);
+        const recommendedStopDetail = evPlan ? evPlan.stops.find((s) => s.id === st.id) : null;
+        const isFirstUnsafeStation = !!(
+          evPlan && !evPlan.feasible && evPlan.unsafeNextTargetLabel &&
+          st.name === evPlan.unsafeNextTargetLabel
+        );
+
+        return {
+          id: st.id,
+          name: st.name,
+          latitude: st.lat,
+          longitude: st.lng,
+          address: st.address,
+          city: 'Indore',
+          distanceFromRouteKm: 0.0,
+          // Sequence number only for stations the user has selected/applied as an actual
+          // charging stop, so the map badge (Stop 1, Stop 2, ...) matches the Route Preview.
+          ...(selectedIdx !== -1 ? { stopNumber: selectedIdx + 1 } : {}),
+          isRecommended: st.isRecommendedStop,
+          unsafe: isFirstUnsafeStation,
+          safetyStatus: st.safety ? (st.safety.nextTargetReachable ? 'safe' : 'unsafe') : undefined,
+          rangeOnArrivalKm: recommendedStopDetail ? recommendedStopDetail.rangeOnArrivalKm : st.safety?.remainingRangeAtArrivalKm,
+          nextStationDistanceKm: recommendedStopDetail ? recommendedStopDetail.nextTargetDistanceKm : st.safety?.nextTargetDistanceKm,
+          nextStationLabel: recommendedStopDetail ? recommendedStopDetail.nextTargetLabel : st.safety?.nextTargetLabel,
+          reason: recommendedStopDetail ? recommendedStopDetail.reason : undefined,
+          attribution: 'Data provided by Open Charge Map'
+        };
+      });
+  }, [chargingStations, selectedStops, evPlan]);
 
   // Toggle Charging Stop Selection (Add / Remove Stop)
   const handleToggleStop = (station) => {
@@ -825,32 +964,61 @@ export default function EVIntelligence() {
               )}
               {plannedRouteError && <p className="text-error text-label-xs">{plannedRouteError}</p>}
 
-              {/* Battery / Range Input (replaces the previous slider control) */}
-              <div>
-                <div className="flex justify-between text-label-xs text-on-surface-variant mb-2">
-                  <span>Current Vehicle Battery Level</span>
-                  <span className="font-bold text-primary">{currentRangeKm} km available range</span>
+              {/* Vehicle Range + Battery Inputs (replaces the previous slider control) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex justify-between text-label-xs text-on-surface-variant mb-2">
+                    <span>Vehicle Full-Charge Range</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="50"
+                      max="1000"
+                      step="5"
+                      value={vehicleRangeKm}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (Number.isNaN(val)) return;
+                        setVehicleRangeKm(val);
+                      }}
+                      onBlur={(e) => {
+                        const val = Number(e.target.value);
+                        const clamped = Number.isNaN(val) ? 50 : Math.min(1000, Math.max(50, val));
+                        setVehicleRangeKm(clamped);
+                      }}
+                      className="w-24 bg-white rounded-lg border border-tertiary-fixed px-3 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary"
+                    />
+                    <span className="text-label-sm font-label-sm text-on-surface-variant">km at 100% battery</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="10"
-                    max="100"
-                    step="1"
-                    value={batteryPct}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      if (Number.isNaN(val)) return;
-                      setBatteryPct(val);
-                    }}
-                    onBlur={(e) => {
-                      const val = Number(e.target.value);
-                      const clamped = Number.isNaN(val) ? 10 : Math.min(100, Math.max(10, val));
-                      setBatteryPct(clamped);
-                    }}
-                    className="w-24 bg-white rounded-lg border border-tertiary-fixed px-3 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary"
-                  />
-                  <span className="text-label-sm font-label-sm text-on-surface-variant">% battery (10–100)</span>
+
+                <div>
+                  <div className="flex justify-between text-label-xs text-on-surface-variant mb-2">
+                    <span>Current Vehicle Battery Level</span>
+                    <span className="font-bold text-primary">{currentRangeKm} km available range</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="10"
+                      max="100"
+                      step="1"
+                      value={batteryPct}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (Number.isNaN(val)) return;
+                        setBatteryPct(val);
+                      }}
+                      onBlur={(e) => {
+                        const val = Number(e.target.value);
+                        const clamped = Number.isNaN(val) ? 10 : Math.min(100, Math.max(10, val));
+                        setBatteryPct(clamped);
+                      }}
+                      className="w-24 bg-white rounded-lg border border-tertiary-fixed px-3 py-2 text-body-md font-body-md text-on-surface text-sm outline-none focus:border-primary"
+                    />
+                    <span className="text-label-sm font-label-sm text-on-surface-variant">% battery (10–100)</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -915,11 +1083,15 @@ export default function EVIntelligence() {
                 <p className="text-label-xs text-on-surface-variant">Calculating route feasibility…</p>
               ) : !evPlan.needsCharging ? (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-label-sm text-emerald-800">
-                  <p className="font-semibold mb-1">✓ Destination reachable on current charge</p>
+                  <p className="font-semibold mb-1">{evPlan.safetyExplanation}</p>
                   <p className="text-label-xs">{evPlan.summary}</p>
                 </div>
               ) : evPlan.feasible ? (
                 <div className="space-y-3">
+                  {/* Phase 3: explicit safety explanation for the overall recommended sequence */}
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-label-sm text-emerald-800 font-semibold">
+                    {evPlan.safetyExplanation}
+                  </div>
                   <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-label-xs text-on-surface">
                     {evPlan.summary}
                   </div>
@@ -943,7 +1115,8 @@ export default function EVIntelligence() {
                     </span>
                   </div>
 
-                  {/* Per-stop reasoning and range breakdown */}
+                  {/* Per-stop reasoning and range breakdown (Phase 3: charging station, distance,
+                      expected range on arrival, reason for recommendation, next station distance) */}
                   <div className="space-y-2">
                     {evPlan.stops.map((stop) => (
                       <div key={stop.id} className="p-3 rounded-lg border border-outline-variant/40 bg-surface-container-low text-label-xs">
@@ -952,9 +1125,10 @@ export default function EVIntelligence() {
                           <span className="text-primary font-semibold whitespace-nowrap">{stop.legDistanceFromPrevKm} km leg</span>
                         </div>
                         <p className="text-on-surface-variant mb-1">{stop.address}</p>
-                        <p className="text-on-surface-variant"><strong className="text-on-surface">Why this stop:</strong> {stop.reason}</p>
-                        <p className="text-on-surface-variant"><strong className="text-on-surface">Reachable range after charging:</strong> ~{stop.reachableRangeFromStopKm} km</p>
-                        <p className="text-on-surface-variant"><strong className="text-on-surface">Remaining to destination:</strong> {stop.remainingToDestinationKm} km</p>
+                        <p className="text-on-surface-variant"><strong className="text-on-surface">Expected range on arrival:</strong> ~{stop.rangeOnArrivalKm} km</p>
+                        <p className="text-on-surface-variant"><strong className="text-on-surface">Reason for recommendation:</strong> {stop.reason}</p>
+                        <p className="text-on-surface-variant"><strong className="text-on-surface">Range after charging here:</strong> ~{stop.reachableRangeFromStopKm} km</p>
+                        <p className="text-on-surface-variant"><strong className="text-on-surface">Next charging station distance:</strong> {stop.nextTargetDistanceKm} km to {stop.nextTargetLabel.split('—')[0].trim()}</p>
                       </div>
                     ))}
                   </div>
@@ -969,9 +1143,36 @@ export default function EVIntelligence() {
                   </button>
                 </div>
               ) : (
-                <div className="bg-error-container/10 border border-error/30 rounded-xl p-4 text-label-sm text-error">
-                  <p className="font-semibold mb-1">⚠️ Destination not currently reachable</p>
-                  <p className="text-label-xs">{evPlan.summary}</p>
+                <div className="space-y-3">
+                  {/* Phase 3: explicit "why is this unsafe" explanation, in the required format */}
+                  <div className="bg-error-container/10 border border-error/30 rounded-xl p-4 text-label-sm text-error">
+                    <p className="font-semibold mb-1">{evPlan.safetyExplanation}</p>
+                    <p className="text-label-xs">
+                      {evPlan.stops.length > 0
+                        ? `We recommend charging fully at the last reachable stop below (Stop ${evPlan.stops.length}) before continuing — the segment beyond it is highlighted on the map.`
+                        : 'The nearest charging station is beyond your current range — the unsafe segment is highlighted on the map.'}
+                    </p>
+                  </div>
+
+                  {/* Any reachable stops found before the unsafe segment are still shown so the
+                      user has a partial, honest plan rather than nothing. */}
+                  {evPlan.stops.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-label-xs font-semibold text-on-surface">Reachable stops before the unsafe segment:</p>
+                      {evPlan.stops.map((stop) => (
+                        <div key={stop.id} className="p-3 rounded-lg border border-outline-variant/40 bg-surface-container-low text-label-xs">
+                          <div className="flex justify-between items-start mb-1 gap-2">
+                            <span className="font-semibold text-on-surface">Stop {stop.stopNumber}: {stop.name}</span>
+                            <span className="text-primary font-semibold whitespace-nowrap">{stop.legDistanceFromPrevKm} km leg</span>
+                          </div>
+                          <p className="text-on-surface-variant mb-1">{stop.address}</p>
+                          <p className="text-on-surface-variant"><strong className="text-on-surface">Expected range on arrival:</strong> ~{stop.rangeOnArrivalKm} km</p>
+                          <p className="text-on-surface-variant"><strong className="text-on-surface">Reason for recommendation:</strong> {stop.reason}</p>
+                          <p className="text-on-surface-variant"><strong className="text-on-surface">Range after charging here:</strong> ~{stop.reachableRangeFromStopKm} km</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </section>
@@ -1026,8 +1227,29 @@ export default function EVIntelligence() {
                               ⚡ Recommended Stop
                             </span>
                           )}
+                          {station.safety && !station.safety.nextTargetReachable && (
+                            <span className="bg-error/10 text-error text-[10px] px-2 py-0.5 rounded font-semibold border border-error/30">
+                              ⚠️ NOT SAFE beyond this stop
+                            </span>
+                          )}
                         </div>
                         <p className="text-label-xs text-on-surface-variant">{station.address} • {station.distance}</p>
+
+                        {/* Progressive range intelligence: distance from current position, remaining
+                            range on arrival (without charging), and reachability of the next stop. */}
+                        {station.safety && (
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-on-surface-variant">
+                            <span>From current: <strong className="text-on-surface">{station.safety.distanceFromCurrentKm} km</strong></span>
+                            <span>Range on arrival: <strong className="text-on-surface">~{station.safety.remainingRangeAtArrivalKm} km</strong></span>
+                            <span>To next ({station.safety.nextTargetLabel.split('—')[0].trim()}): <strong className="text-on-surface">{station.safety.nextTargetDistanceKm} km</strong></span>
+                            <span>
+                              Next reachable:{' '}
+                              <strong className={station.safety.nextTargetReachable ? 'text-emerald-700' : 'text-error'}>
+                                {station.safety.nextTargetReachable ? 'Yes' : 'No — NOT SAFE'}
+                              </strong>
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-4">
@@ -1202,20 +1424,8 @@ export default function EVIntelligence() {
                     : (selectedStops.length > 0 ? { lat: selectedStops[selectedStops.length - 1].lat, lng: selectedStops[selectedStops.length - 1].lng } : null)
                 }
                 route={evRoute}
-                evStations={selectedStops.map((s, idx) => ({
-                  id: s.id,
-                  name: s.name,
-                  latitude: s.lat,
-                  longitude: s.lng,
-                  address: s.address,
-                  city: 'Indore',
-                  distanceFromRouteKm: 0.0,
-                  // Sequence number so the map marker and popup can clearly label each
-                  // required charging stop (Stop 1, Stop 2, ...), keeping the map in sync
-                  // with the Origin -> Stop 1 -> Stop 2 -> Destination plan shown above.
-                  stopNumber: idx + 1,
-                  attribution: 'Data provided by Open Charge Map'
-                }))}
+                evStations={mapEvStations}
+                unsafeSegment={unsafeSegmentCoords}
                 onRecenterRef={recenterMapRef}
               />
             </div>
