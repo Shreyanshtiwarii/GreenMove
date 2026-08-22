@@ -1,6 +1,7 @@
 package com.greenmove.dto;
 
 import jakarta.validation.constraints.NotNull;
+import java.util.List;
 
 public class RoutingRequest {
 
@@ -42,6 +43,7 @@ public class RoutingRequest {
 
     private String profile = "DRIVING";
     private boolean avoidTolls = false;
+    private List<Coordinate> intermediates;
 
     public RoutingRequest() {}
 
@@ -82,5 +84,13 @@ public class RoutingRequest {
 
     public void setAvoidTolls(boolean avoidTolls) {
         this.avoidTolls = avoidTolls;
+    }
+
+    public List<Coordinate> getIntermediates() {
+        return intermediates;
+    }
+
+    public void setIntermediates(List<Coordinate> intermediates) {
+        this.intermediates = intermediates;
     }
 }

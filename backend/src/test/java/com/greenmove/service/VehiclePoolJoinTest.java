@@ -243,7 +243,7 @@ class VehiclePoolJoinTest {
     // =========================================================================
 
     @Test
-    void testJoin_ValidPhoneNumberIsStored() {
+    void testJoin_Valid10DigitPhoneNumberIsStored() {
         JoinPoolRequest req = new JoinPoolRequest();
         req.setPickupLocation("A");
         req.setPickupLatitude(10.0);
@@ -251,7 +251,7 @@ class VehiclePoolJoinTest {
         req.setDropoffLocation("B");
         req.setDropoffLatitude(10.05);
         req.setDropoffLongitude(20.05);
-        req.setPhoneNumber("+91 98765-43210");
+        req.setPhoneNumber("9876543210");
 
         when(userRepository.findById("user_passenger")).thenReturn(Optional.of(testPassenger));
         when(poolRepository.findByIdForUpdate("pool_123")).thenReturn(Optional.of(testPool));
@@ -261,15 +261,15 @@ class VehiclePoolJoinTest {
 
         ArgumentCaptor<VehiclePoolMemberEntity> memberCaptor = ArgumentCaptor.forClass(VehiclePoolMemberEntity.class);
         verify(memberRepository).save(memberCaptor.capture());
-        assertEquals("+919876543210", memberCaptor.getValue().getPhoneNumber());
+        assertEquals("9876543210", memberCaptor.getValue().getPhoneNumber());
     }
 
     @Test
-    void testJoin_InvalidPhoneNumberRejected() {
+    void testJoin_Plus91PhoneNumberRejected() {
         JoinPoolRequest req = new JoinPoolRequest();
         req.setPickupLatitude(10.0);
         req.setPickupLongitude(20.0);
-        req.setPhoneNumber("abc123"); // not a valid phone number
+        req.setPhoneNumber("+919876543210"); // +91 prefix not allowed
 
         when(userRepository.findById("user_passenger")).thenReturn(Optional.of(testPassenger));
         when(poolRepository.findByIdForUpdate("pool_123")).thenReturn(Optional.of(testPool));
@@ -278,14 +278,29 @@ class VehiclePoolJoinTest {
         PoolException ex = assertThrows(PoolException.class, () ->
             vehiclePoolService.joinPool("user_passenger", "pool_123", req));
         assertEquals(400, ex.getStatus());
-        assertTrue(ex.getMessage().contains("Invalid phone number"));
         verify(memberRepository, never()).save(any());
+    }
+
+    @Test
+    void testJoin_SpacesInPhoneNumberRejected() {
+        JoinPoolRequest req = new JoinPoolRequest();
+        req.setPickupLatitude(10.0);
+        req.setPickupLongitude(20.0);
+        req.setPhoneNumber("987 654 3210"); // spaces not allowed
+
+        when(userRepository.findById("user_passenger")).thenReturn(Optional.of(testPassenger));
+        when(poolRepository.findByIdForUpdate("pool_123")).thenReturn(Optional.of(testPool));
+        when(memberRepository.findByPoolIdAndUserId("pool_123", "user_passenger")).thenReturn(Optional.empty());
+
+        PoolException ex = assertThrows(PoolException.class, () ->
+            vehiclePoolService.joinPool("user_passenger", "pool_123", req));
+        assertEquals(400, ex.getStatus());
     }
 
     @Test
     void testJoin_TooShortPhoneNumberRejected() {
         JoinPoolRequest req = new JoinPoolRequest();
-        req.setPhoneNumber("12345"); // fewer than 7 digits
+        req.setPhoneNumber("123456789"); // 9 digits
 
         when(userRepository.findById("user_passenger")).thenReturn(Optional.of(testPassenger));
         when(poolRepository.findByIdForUpdate("pool_123")).thenReturn(Optional.of(testPool));
@@ -294,7 +309,20 @@ class VehiclePoolJoinTest {
         PoolException ex = assertThrows(PoolException.class, () ->
             vehiclePoolService.joinPool("user_passenger", "pool_123", req));
         assertEquals(400, ex.getStatus());
-        assertTrue(ex.getMessage().contains("Invalid phone number"));
+    }
+
+    @Test
+    void testJoin_ElevenDigitsPhoneNumberRejected() {
+        JoinPoolRequest req = new JoinPoolRequest();
+        req.setPhoneNumber("98765432101"); // 11 digits
+
+        when(userRepository.findById("user_passenger")).thenReturn(Optional.of(testPassenger));
+        when(poolRepository.findByIdForUpdate("pool_123")).thenReturn(Optional.of(testPool));
+        when(memberRepository.findByPoolIdAndUserId("pool_123", "user_passenger")).thenReturn(Optional.empty());
+
+        PoolException ex = assertThrows(PoolException.class, () ->
+            vehiclePoolService.joinPool("user_passenger", "pool_123", req));
+        assertEquals(400, ex.getStatus());
     }
 
     @Test

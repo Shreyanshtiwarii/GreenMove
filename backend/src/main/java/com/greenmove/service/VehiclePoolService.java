@@ -1091,9 +1091,10 @@ public class VehiclePoolService {
                 dGeom = createPoint(dLat, dLng);
             }
 
-            phoneNumber = normalizePhoneNumber(request.getPhoneNumber());
-            if (phoneNumber != null) {
+            phoneNumber = request.getPhoneNumber();
+            if (phoneNumber != null && !phoneNumber.trim().isEmpty()) {
                 validatePhoneNumber(phoneNumber);
+                phoneNumber = phoneNumber.trim();
             }
         }
 
@@ -1190,11 +1191,15 @@ public class VehiclePoolService {
         response.setStatus(computeDisplayStatus(pool));
         response.setRatePerKm(computeRatePerKm(pool.getCostPerPassenger(), pool.getRouteDistanceMeters()));
 
-        List<VehiclePoolMemberEntity> members = memberRepository.findByPoolId(pool.getId());
+        List<VehiclePoolMemberEntity> members = memberRepository.findByPoolId(pool.getId()).stream()
+                .filter(m -> !"CANCELLED".equals(m.getStatus()))
+                .collect(Collectors.toList());
+
         List<com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse> passengers = new ArrayList<>();
         for (VehiclePoolMemberEntity member : members) {
             com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse pd =
                     new com.greenmove.dto.VehiclePoolDTOs.PassengerDetailResponse();
+            pd.setUserId(member.getUserId());
             pd.setUserName(member.getUserName());
             pd.setPickupLocation(member.getPickupLocation());
             pd.setPickupLatitude(member.getPickupLat());
@@ -1215,23 +1220,87 @@ public class VehiclePoolService {
         }
         response.setPassengers(passengers);
 
+        computeAndSetDisplayRoute(pool, members, response);
+
         return response;
     }
 
-    /**
-     * pickupTime ~= driver departureTime + estimated A(driver start)->C(this passenger's
-     * pickup) duration. The A->C duration is NOT re-fetched from Google here (Phase 5 only
-     * computes it transiently, per-search, and never persists it on the member row); instead
-     * it is estimated from data already stored on the pool -- the fraction of the driver's
-     * existing route geometry consumed between the start point and the passenger's stored
-     * pickup point, applied to the driver's existing total route duration. Always an
-     * ESTIMATE, and the caller must treat/label it as such.
-     *
-     * Returns null (never throws) whenever there isn't enough stored data to estimate it:
-     * missing departure time, missing/degenerate route geometry, missing route duration, or
-     * a legacy/null passenger pickup location -- so one incomplete pool/member never breaks
-     * the rest of the response.
-     */
+    private static class RouteStopItem {
+        double lat;
+        double lng;
+        boolean isPickup;
+        double fraction;
+
+        RouteStopItem(double lat, double lng, boolean isPickup, double fraction) {
+            this.lat = lat;
+            this.lng = lng;
+            this.isPickup = isPickup;
+            this.fraction = fraction;
+        }
+    }
+
+    private void computeAndSetDisplayRoute(VehiclePoolEntity pool,
+                                           List<VehiclePoolMemberEntity> members,
+                                           com.greenmove.dto.VehiclePoolDTOs.ActivePoolDetailsResponse response) {
+        LineString driverRouteGeom = pool.getRouteGeom();
+        if (driverRouteGeom == null || members.isEmpty()) {
+            response.setRouteGeometry(lineStringToGeoJson(driverRouteGeom));
+            return;
+        }
+
+        List<RouteStopItem> stops = new ArrayList<>();
+        for (VehiclePoolMemberEntity m : members) {
+            if (m.getPickupLat() != null && m.getPickupLng() != null) {
+                double f = locatePointOnLineString(createPoint(m.getPickupLat(), m.getPickupLng()), driverRouteGeom);
+                stops.add(new RouteStopItem(m.getPickupLat(), m.getPickupLng(), true, f));
+            }
+            if (m.getDropoffLat() != null && m.getDropoffLng() != null) {
+                double f = locatePointOnLineString(createPoint(m.getDropoffLat(), m.getDropoffLng()), driverRouteGeom);
+                stops.add(new RouteStopItem(m.getDropoffLat(), m.getDropoffLng(), false, f));
+            }
+        }
+
+        if (stops.isEmpty()) {
+            response.setRouteGeometry(lineStringToGeoJson(driverRouteGeom));
+            return;
+        }
+
+        stops.sort(Comparator.comparingDouble((RouteStopItem s) -> s.fraction)
+                .thenComparing((s1, s2) -> Boolean.compare(!s1.isPickup, !s2.isPickup)));
+
+        List<RoutingRequest.Coordinate> intermediateCoords = new ArrayList<>();
+        for (RouteStopItem s : stops) {
+            intermediateCoords.add(new RoutingRequest.Coordinate(s.lat, s.lng));
+        }
+
+        RoutingRequest req = new RoutingRequest(
+                new RoutingRequest.Coordinate(pool.getStartLat(), pool.getStartLng()),
+                new RoutingRequest.Coordinate(pool.getDestinationLat(), pool.getDestinationLng()),
+                "DRIVING",
+                false
+        );
+        req.setIntermediates(intermediateCoords);
+
+        try {
+            RoutingResponse resp = googleRoutesService.computeTrafficRoutes(req);
+            if (resp != null && resp.isSuccess() && resp.getPrimaryRoute() != null) {
+                RouteDTO primary = resp.getPrimaryRoute();
+                response.setRouteGeometry(primary.getGeometry());
+                if (primary.getDistanceMeters() != null && primary.getDistanceMeters() > 0) {
+                    response.setRouteDistanceMeters(primary.getDistanceMeters());
+                }
+                if (primary.getDurationSeconds() != null && primary.getDurationSeconds() > 0) {
+                    response.setRouteDurationSeconds(primary.getDurationSeconds().intValue());
+                }
+                return;
+            }
+        } catch (Exception e) {
+            // Fallback
+        }
+
+        response.setRouteGeometry(lineStringToGeoJson(driverRouteGeom));
+    }
+
     private LocalDateTime computeApproxPickupTime(VehiclePoolEntity pool, VehiclePoolMemberEntity member) {
         if (pool.getDepartureTime() == null) {
             return null;
@@ -1261,12 +1330,6 @@ public class VehiclePoolService {
         return Math.round(fraction * totalDurationSeconds);
     }
 
-    /**
-     * Converts an already-stored JTS LineString back into the same GeoJSON shape used
-     * elsewhere in the API ({@code {type: "LineString", coordinates: [[lng,lat], ...]}}).
-     * No routing call involved -- this is a pure in-memory reformat of existing geometry.
-     * Returns null for legacy pools with no stored/degenerate route geometry.
-     */
     private static Map<String, Object> lineStringToGeoJson(LineString lineString) {
         if (lineString == null || lineString.getNumPoints() < 2) {
             return null;
@@ -1281,20 +1344,44 @@ public class VehiclePoolService {
         return geoJson;
     }
 
-    /** E.164-ish phone validation: optional leading '+', 7-15 digits after stripping common separators. */
-    private static final java.util.regex.Pattern PHONE_PATTERN = java.util.regex.Pattern.compile("^\\+?[0-9]{7,15}$");
+    @Transactional
+    public PoolResponse removePassenger(String creatorId, String poolId, String passengerUserId) {
+        UserEntity creator = requireUser(creatorId);
 
-    /** Strips spaces/hyphens/parentheses; returns null for blank input so it's treated as "not provided". */
-    private String normalizePhoneNumber(String rawPhone) {
-        if (rawPhone == null) return null;
-        String trimmed = rawPhone.trim();
-        if (trimmed.isEmpty()) return null;
-        return trimmed.replaceAll("[\\s\\-()]", "");
+        VehiclePoolEntity pool = poolRepository.findByIdForUpdate(poolId)
+                .orElseThrow(() -> new PoolException(404, "Vehicle pool not found"));
+
+        if (!pool.getCreatorId().equals(creator.getId())) {
+            throw new PoolException(403, "Only the pool creator can remove passengers");
+        }
+
+        if (STATUS_COMPLETED.equals(pool.getStatus()) || STATUS_TERMINATED.equals(pool.getStatus())) {
+            throw new PoolException(400, "Cannot remove passenger after pool is completed or terminated");
+        }
+
+        VehiclePoolMemberEntity member = memberRepository.findByPoolIdAndUserId(poolId, passengerUserId)
+                .orElseThrow(() -> new PoolException(404, "Passenger membership not found in this pool"));
+
+        if ("CANCELLED".equals(member.getStatus())) {
+            throw new PoolException(400, "Passenger has already been removed or cancelled");
+        }
+
+        member.setStatus("CANCELLED");
+        memberRepository.save(member);
+
+        int newAvailableSeats = Math.min(pool.getTotalSeats(), (pool.getAvailableSeats() != null ? pool.getAvailableSeats() : 0) + 1);
+        pool.setAvailableSeats(newAvailableSeats);
+        poolRepository.save(pool);
+
+        return toResponse(pool, creator.getId(), false, true);
     }
 
-    private void validatePhoneNumber(String normalizedPhone) {
-        if (!PHONE_PATTERN.matcher(normalizedPhone).matches()) {
-            throw new PoolException(400, "Invalid phone number");
+    /** Phone validation: must be exactly 10 numeric digits. */
+    private static final java.util.regex.Pattern PHONE_PATTERN = java.util.regex.Pattern.compile("^[0-9]{10}$");
+
+    private void validatePhoneNumber(String rawPhone) {
+        if (rawPhone == null || !PHONE_PATTERN.matcher(rawPhone.trim()).matches()) {
+            throw new PoolException(400, "Phone number must be exactly 10 digits");
         }
     }
 

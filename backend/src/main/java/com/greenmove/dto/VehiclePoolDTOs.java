@@ -396,6 +396,7 @@ public class VehiclePoolDTOs {
      * {@link ActivePoolDetailsResponse}. Never returned from public search/browse endpoints.
      */
     public static class PassengerDetailResponse {
+        private String userId;
         private String userName;
         private String pickupLocation;
         private Double pickupLatitude;
@@ -422,6 +423,8 @@ public class VehiclePoolDTOs {
 
         public PassengerDetailResponse() {}
 
+        public String getUserId() { return userId; }
+        public void setUserId(String userId) { this.userId = userId; }
         public String getUserName() { return userName; }
         public void setUserName(String userName) { this.userName = userName; }
         public String getPickupLocation() { return pickupLocation; }

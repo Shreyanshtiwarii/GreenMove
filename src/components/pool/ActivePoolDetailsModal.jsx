@@ -232,9 +232,6 @@ export default function ActivePoolDetailsModal({ poolId, onClose }) {
                         <p className="text-label-xs text-on-surface-variant truncate">{stop.locationLabel}</p>
                       )}
                       <div className="flex items-center justify-between mt-1.5 text-label-xs">
-                        <span className="text-on-surface-variant">
-                          {timeLabel ? `${stop.pickupTimeApproximate ? '~' : ''}${timeLabel}` : '—'}
-                        </span>
                         <span className="font-semibold text-on-surface">{formatFare(stop.fare)}</span>
                       </div>
                       {stop.phoneNumber && (

@@ -189,3 +189,15 @@ export async function terminatePool(poolId) {
   });
   return parseResponse(res);
 }
+
+/**
+ * Creator-only: remove a passenger from a pool.
+ * Requires authentication; fails with 403 if the caller isn't the pool's creator.
+ */
+export async function removePassenger(poolId, passengerUserId) {
+  const res = await fetch(`${API_BASE_URL}/pools/${encodeURIComponent(poolId)}/passengers/${encodeURIComponent(passengerUserId)}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() }
+  });
+  return parseResponse(res);
+}

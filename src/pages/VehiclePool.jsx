@@ -16,10 +16,10 @@ import {
   terminatePool
 } from '../services/vehiclePoolService';
 
-/** Basic client-side phone sanity check, mirroring the backend's E.164-ish validation. */
+/** Basic client-side phone check: exactly 10 numeric digits. */
 function isValidPhoneNumber(value) {
-  const stripped = (value || '').trim().replace(/[\s\-()]/g, '');
-  return /^\+?[0-9]{7,15}$/.test(stripped);
+  const stripped = (value || '').trim();
+  return /^[0-9]{10}$/.test(stripped);
 }
 
 /** meters -> "x.x km" for the join confirmation modal. */

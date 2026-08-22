@@ -76,6 +76,17 @@ public class GoogleRoutesService {
             bodyMap.put("origin", originMap);
             bodyMap.put("destination", destMap);
 
+            if (req.getIntermediates() != null && !req.getIntermediates().isEmpty()) {
+                List<Map<String, Object>> inters = new ArrayList<>();
+                for (RoutingRequest.Coordinate c : req.getIntermediates()) {
+                    inters.add(Map.of("location", Map.of("latLng", Map.of(
+                        "latitude", c.getLat(),
+                        "longitude", c.getLng()
+                    ))));
+                }
+                bodyMap.put("intermediates", inters);
+            }
+
             String travelMode = "DRIVE";
             if ("MOTORCYCLE".equalsIgnoreCase(req.getProfile()) || "TWO_WHEELER".equalsIgnoreCase(req.getProfile())) {
                 travelMode = "TWO_WHEELER";

@@ -347,4 +347,123 @@ class ActivePoolDetailsTest {
                 "Public PoolMemberResponse must never carry a phone number field");
         assertNotNull(publicMember);
     }
+
+    // ---------------------------------------------------------------
+    // Driver Remove Passenger & Route Stops tests
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Route contains passenger stops and orders them correctly")
+    void routeContainsPassengerStopsAndCorrectOrder() {
+        VehiclePoolMemberEntity m1 = new VehiclePoolMemberEntity();
+        m1.setId("mem_1");
+        m1.setPoolId("pool_1");
+        m1.setUserId("user_p1");
+        m1.setUserName("Passenger 1");
+        m1.setStatus("PENDING");
+        m1.setPickupLat(0.0);
+        m1.setPickupLng(0.3); // pickup earlier
+        m1.setDropoffLat(0.0);
+        m1.setDropoffLng(0.8); // dropoff later
+
+        when(userRepository.findById("user_driver")).thenReturn(Optional.of(driver));
+        when(poolRepository.findById("pool_1")).thenReturn(Optional.of(pool));
+        when(memberRepository.findByPoolId("pool_1")).thenReturn(List.of(m1));
+
+        com.greenmove.dto.RoutingResponse mockResp = new com.greenmove.dto.RoutingResponse();
+        mockResp.setSuccess(true);
+        com.greenmove.dto.RoutingResponse.RouteDTO routeDTO = new com.greenmove.dto.RoutingResponse.RouteDTO();
+        routeDTO.setDistanceMeters(12000.0);
+        routeDTO.setDurationSeconds(1200.0);
+        routeDTO.setGeometry(Map.of("type", "LineString", "coordinates", List.of(List.of(0.0, 0.0), List.of(0.3, 0.0), List.of(0.8, 0.0), List.of(1.0, 0.0))));
+        mockResp.setPrimaryRoute(routeDTO);
+
+        org.mockito.ArgumentCaptor<com.greenmove.dto.RoutingRequest> reqCaptor = org.mockito.ArgumentCaptor.forClass(com.greenmove.dto.RoutingRequest.class);
+        when(googleRoutesService.computeTrafficRoutes(reqCaptor.capture())).thenReturn(mockResp);
+
+        ActivePoolDetailsResponse res = vehiclePoolService.getActivePoolDetails("user_driver", "pool_1");
+
+        assertNotNull(res.getRouteGeometry());
+        verify(googleRoutesService).computeTrafficRoutes(any());
+        com.greenmove.dto.RoutingRequest req = reqCaptor.getValue();
+        assertNotNull(req.getIntermediates());
+        assertEquals(2, req.getIntermediates().size());
+        // First intermediate is pickup (lng 0.3), second is dropoff (lng 0.8)
+        assertEquals(0.3, req.getIntermediates().get(0).getLng());
+        assertEquals(0.8, req.getIntermediates().get(1).getLng());
+    }
+
+    @Test
+    @DisplayName("Non-owner cannot remove passenger (403 Forbidden)")
+    void nonOwnerCannotRemovePassenger() {
+        when(userRepository.findById("user_other")).thenReturn(Optional.of(otherUser));
+        when(poolRepository.findByIdForUpdate("pool_1")).thenReturn(Optional.of(pool));
+
+        PoolException ex = assertThrows(PoolException.class, () ->
+                vehiclePoolService.removePassenger("user_other", "pool_1", "user_p1"));
+
+        assertEquals(403, ex.getStatus());
+        assertTrue(ex.getMessage().contains("Only the pool creator can remove passengers"));
+    }
+
+    @Test
+    @DisplayName("Owner can remove passenger and seat is restored")
+    void ownerCanRemovePassengerAndSeatRestored() {
+        VehiclePoolMemberEntity member = new VehiclePoolMemberEntity();
+        member.setId("mem_1");
+        member.setPoolId("pool_1");
+        member.setUserId("user_p1");
+        member.setStatus("PENDING");
+
+        pool.setAvailableSeats(1);
+        pool.setTotalSeats(3);
+
+        when(userRepository.findById("user_driver")).thenReturn(Optional.of(driver));
+        when(poolRepository.findByIdForUpdate("pool_1")).thenReturn(Optional.of(pool));
+        when(memberRepository.findByPoolIdAndUserId("pool_1", "user_p1")).thenReturn(Optional.of(member));
+
+        com.greenmove.dto.VehiclePoolDTOs.PoolResponse res = vehiclePoolService.removePassenger("user_driver", "pool_1", "user_p1");
+
+        assertEquals("CANCELLED", member.getStatus());
+        verify(memberRepository).save(member);
+        assertEquals(2, pool.getAvailableSeats());
+        verify(poolRepository).save(pool);
+        assertEquals(2, res.getAvailableSeats());
+    }
+
+    @Test
+    @DisplayName("Removed member has status CANCELLED and never contributes to active passengers or impact")
+    void removedMemberNeverContributesToImpact() {
+        VehiclePoolMemberEntity member = new VehiclePoolMemberEntity();
+        member.setId("mem_1");
+        member.setPoolId("pool_1");
+        member.setUserId("user_p1");
+        member.setStatus("CANCELLED");
+        member.setMoneySaved(null);
+        member.setCo2SavedKg(null);
+
+        when(userRepository.findById("user_driver")).thenReturn(Optional.of(driver));
+        when(poolRepository.findById("pool_1")).thenReturn(Optional.of(pool));
+        when(memberRepository.findByPoolId("pool_1")).thenReturn(List.of(member));
+
+        ActivePoolDetailsResponse res = vehiclePoolService.getActivePoolDetails("user_driver", "pool_1");
+
+        // Cancelled member is excluded from ActivePoolDetailsResponse passenger list
+        assertTrue(res.getPassengers().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Removal rejected after pool is completed or terminated (400 Bad Request)")
+    void removalAfterCompletionOrTerminationRejected() {
+        pool.setStatus("COMPLETED");
+
+        when(userRepository.findById("user_driver")).thenReturn(Optional.of(driver));
+        when(poolRepository.findByIdForUpdate("pool_1")).thenReturn(Optional.of(pool));
+
+        PoolException ex = assertThrows(PoolException.class, () ->
+                vehiclePoolService.removePassenger("user_driver", "pool_1", "user_p1"));
+
+        assertEquals(400, ex.getStatus());
+        assertTrue(ex.getMessage().contains("Cannot remove passenger after pool is completed or terminated"));
+    }
 }

@@ -193,6 +193,33 @@ public class VehiclePoolController {
         }
     }
 
+    /**
+     * Creator-only: remove a passenger from the pool.
+     * Marks membership CANCELLED, restores 1 seat, and prevents contribution to savings/CO2/impact.
+     * Throws 403 for non-creators and 400 after completion/termination.
+     */
+    @DeleteMapping("/{id}/passengers/{passengerUserId}")
+    public ResponseEntity<?> removePassenger(Authentication authentication,
+                                             @PathVariable("id") String poolId,
+                                             @PathVariable("passengerUserId") String passengerUserId) {
+        if (authentication == null || authentication.getName() == null) {
+            return unauthenticated();
+        }
+        try {
+            PoolResponse pool = vehiclePoolService.removePassenger(authentication.getName(), poolId, passengerUserId);
+            return ResponseEntity.ok(pool);
+        } catch (PoolException ex) {
+            return ResponseEntity.status(ex.getStatus()).body(Map.of("message", ex.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{id}/members/{passengerUserId}")
+    public ResponseEntity<?> removePassengerMember(Authentication authentication,
+                                                   @PathVariable("id") String poolId,
+                                                   @PathVariable("passengerUserId") String passengerUserId) {
+        return removePassenger(authentication, poolId, passengerUserId);
+    }
+
     private ResponseEntity<?> unauthenticated() {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Please sign in to continue"));
     }
