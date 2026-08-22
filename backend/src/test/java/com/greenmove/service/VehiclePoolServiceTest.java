@@ -68,6 +68,7 @@ class VehiclePoolServiceTest {
         when(mockMetaData.getDatabaseProductName()).thenReturn("H2");
 
         // Inject @Value properties using ReflectionTestUtils
+        org.springframework.test.util.ReflectionTestUtils.setField(vehiclePoolService, "maxSpatialDistanceMeters", 3000.0);
         org.springframework.test.util.ReflectionTestUtils.setField(vehiclePoolService, "maxDetourDistanceMeters", 3000.0);
         org.springframework.test.util.ReflectionTestUtils.setField(vehiclePoolService, "maxDetourPercentage", 20.0);
         org.springframework.test.util.ReflectionTestUtils.setField(vehiclePoolService, "minRouteOverlapPercentage", 50.0);
@@ -461,7 +462,7 @@ class VehiclePoolServiceTest {
     }
 
     /**
-     * E: Far pickup — DB returns empty because pickup > 500 m.
+     * E: Far pickup — DB returns empty because pickup > 3000 m.
      */
     @Test
     @DisplayName("E: Far pickup → no candidates returned")
@@ -479,7 +480,7 @@ class VehiclePoolServiceTest {
     }
 
     /**
-     * F: Far dropoff — DB returns empty because dropoff > 500 m.
+     * F: Far dropoff — DB returns empty because dropoff > 3000 m.
      */
     @Test
     @DisplayName("F: Far dropoff → no candidates returned")
@@ -645,6 +646,361 @@ class VehiclePoolServiceTest {
     }
 
     // =========================================================================
+    //  Phase 3 — 3km spatial boundary tests (DB path, repository mocked)
+    //
+    //  These tests simulate the PostgreSQL/PostGIS ST_DWithin(... , :maxDistanceMeters)
+    //  predicate having already filtered candidates in the DB: when the repository
+    //  mock returns a projection, the pool is treated as "within range" by the DB;
+    //  when the repository mock returns an empty list, the pool is treated as having
+    //  been filtered out by the DB. maxSpatialDistanceMeters is wired to 3000.0 in
+    //  setUp() so these confirm the service-layer plumbing (not the SQL itself, which
+    //  is covered by the always-AND / :maxDistanceMeters wiring in VehiclePoolRepository
+    //  and by the EXPLAIN ANALYZE verification against a real PostgreSQL instance).
+    // =========================================================================
+
+    @Test
+    @DisplayName("3km boundary: 1000m pickup / 1000m dropoff → candidate")
+    void testSpatialSearch_1kmPickupAnd1kmDropoff_Candidate() {
+        VehiclePoolEntity pool = activePool("pool_1km",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                eq(3000.0), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_1km", 1000.0, 1000.0)));
+        when(poolRepository.findAllById(List.of("pool_1km"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+        assertEquals(1000.0, results.get(0).getPickupDistanceMeters(), 0.01);
+        assertEquals(1000.0, results.get(0).getDropoffDistanceMeters(), 0.01);
+    }
+
+    @Test
+    @DisplayName("3km boundary: 2999m pickup / 2999m dropoff → candidate")
+    void testSpatialSearch_2999m_JustInsideBoundary_Candidate() {
+        VehiclePoolEntity pool = activePool("pool_2999",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                eq(3000.0), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_2999", 2999.0, 2999.0)));
+        when(poolRepository.findAllById(List.of("pool_2999"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+    }
+
+    @Test
+    @DisplayName("3km boundary: exactly 3000m pickup / 3000m dropoff → candidate (inclusive)")
+    void testSpatialSearch_ExactlyAtBoundary_Inclusive_Candidate() {
+        VehiclePoolEntity pool = activePool("pool_3000",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                eq(3000.0), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_3000", 3000.0, 3000.0)));
+        when(poolRepository.findAllById(List.of("pool_3000"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+    }
+
+    @Test
+    @DisplayName("3km boundary: pickup > 3000m → rejected by DB, no candidates")
+    void testSpatialSearch_PickupOver3000m_Rejected() {
+        // DB's ST_DWithin(..., :maxDistanceMeters=3000) filters this pool out entirely.
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                eq(3000.0), any(LocalDateTime.class)))
+                .thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "FarPickup", 22.9000, 75.8650,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("3km boundary: dropoff > 3000m → rejected by DB, no candidates")
+    void testSpatialSearch_DropoffOver3000m_Rejected() {
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                eq(3000.0), any(LocalDateTime.class)))
+                .thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "FarDropoff", 22.4000, 75.8600);
+
+        assertTrue(results.isEmpty());
+    }
+
+    // =========================================================================
+    //  Phase 3 — 3km spatial boundary tests (H2/JTS in-memory fallback path)
+    //
+    //  These exercise the ACTUAL Java distance math (distancePointToLineStringMeters +
+    //  maxSpatialDistanceMeters check), not a mocked DB result. Geometry is controlled:
+    //  the driver route is a straight east-west line at a fixed latitude, and test
+    //  points are placed at an exact latitude offset from that line, computed with the
+    //  same haversine formula (R = 6,371,000 m) used in production, so the resulting
+    //  perpendicular distance is exact rather than relying on rounded real-world
+    //  coordinates.
+    // =========================================================================
+
+    private static final double EARTH_RADIUS_METERS = 6_371_000.0;
+
+    /** East-west driver route held at a fixed latitude, long enough that test points project inside it. */
+    private LineString eastWestRoute(double routeLat) {
+        Coordinate[] coords = {
+                new Coordinate(76.0000, routeLat),
+                new Coordinate(76.1000, routeLat)
+        };
+        LineString ls = GF.createLineString(coords);
+        ls.setSRID(4326);
+        return ls;
+    }
+
+    /** Latitude exactly `meters` north of baseLat, using the same great-circle formula as production. */
+    private static double latOffsetMeters(double baseLat, double meters) {
+        return baseLat + Math.toDegrees(meters / EARTH_RADIUS_METERS);
+    }
+
+    /** Stubs the DB call to fail and the DataSource to report H2, forcing the JTS fallback path. */
+    private void forceJtsFallback(VehiclePoolEntity pool) {
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), any(LocalDateTime.class)))
+                .thenThrow(new RuntimeException("Simulated PostGIS unavailability (test/H2 environment)"));
+        when(poolRepository.findByStatusAndAvailableSeatsGreaterThanOrderByDepartureTimeAsc("ACTIVE", 0))
+                .thenReturn(List.of(pool));
+    }
+
+    /**
+     * Overrides the class-default routing mock so the Phase 5 "passenger route" geometry
+     * sits exactly on top of the driver's extracted route segment (same lat, overlapping
+     * lng span). This isolates these tests to Phase 3/4 spatial-boundary behaviour: without
+     * it, Phase 5's route-overlap check (a separate, unrelated feature this task must not
+     * change) would drop every candidate regardless of the 3km pickup/dropoff distance,
+     * since the default mock geometry lives in a different part of the map entirely.
+     */
+    private void stubPassengerRouteAlongDriverSegment(double lat, double lngStart, double lngEnd) {
+        RouteDTO route = new RouteDTO();
+        route.setDistanceMeters(1000.0);
+        route.setDurationSeconds(120.0);
+        route.setStaticDurationSeconds(120.0);
+        route.setTrafficDurationSeconds(120.0);
+        route.setGeometry(Map.of("type", "LineString", "coordinates", List.of(
+                new double[]{lngStart, lat},
+                new double[]{lngEnd, lat})));
+        RoutingResponse resp = new RoutingResponse(true, "Mock", route, List.of(route));
+        when(googleRoutesService.computeTrafficRoutes(any())).thenReturn(resp);
+    }
+
+    @Test
+    @DisplayName("H2 fallback: 1000m pickup / 1000m dropoff → candidate")
+    void testFallback_1km_Candidate() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_1km", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        double pickupLat = latOffsetMeters(routeLat, 1000.0);
+        double dropoffLat = latOffsetMeters(routeLat, 1000.0);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+        assertEquals(1000.0, results.get(0).getPickupDistanceMeters(), 0.5);
+        assertEquals(1000.0, results.get(0).getDropoffDistanceMeters(), 0.5);
+    }
+
+    @Test
+    @DisplayName("H2 fallback: 2999m pickup / 2999m dropoff → candidate (just inside)")
+    void testFallback_2999m_Candidate() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_2999", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        double pickupLat = latOffsetMeters(routeLat, 2999.0);
+        double dropoffLat = latOffsetMeters(routeLat, 2999.0);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+    }
+
+    @Test
+    @DisplayName("H2 fallback: exactly 3000m pickup / 3000m dropoff → candidate (inclusive boundary)")
+    void testFallback_ExactlyAtBoundary_Candidate() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_3000", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        // Target exactly 3000.0m, minus a sub-millimetre epsilon to absorb the
+        // degrees<->radians round-trip noise inherent in double arithmetic (lat/lng
+        // are stored in degrees, converted to radians for the haversine check). The
+        // epsilon is ~17 orders of magnitude smaller than the 3000m threshold itself,
+        // so this still validates the "3000m is inclusive" boundary requirement without
+        // the assertion being at the mercy of the last bit of a double's mantissa.
+        double pickupLat = latOffsetMeters(routeLat, 3000.0 - 1e-6);
+        double dropoffLat = latOffsetMeters(routeLat, 3000.0 - 1e-6);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isCandidate());
+    }
+
+    @Test
+    @DisplayName("H2 fallback: pickup just over 3000m (both beyond) → rejected")
+    void testFallback_PickupOver3000m_Rejected() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_over_pickup", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        double pickupLat = latOffsetMeters(routeLat, 3001.0);
+        double dropoffLat = latOffsetMeters(routeLat, 3001.0);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("H2 fallback: dropoff just over 3000m (both beyond) → rejected")
+    void testFallback_DropoffOver3000m_Rejected() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_over_dropoff", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        double pickupLat = latOffsetMeters(routeLat, 3001.0);
+        double dropoffLat = latOffsetMeters(routeLat, 3001.0);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    @DisplayName("H2 fallback: pickup within 3000m but dropoff beyond 3000m (AND, not OR) → rejected")
+    void testFallback_OneWithinOneBeyond_Rejected() {
+        double routeLat = 22.7000;
+        VehiclePoolEntity pool = activePool("pool_fb_mixed", routeLat, 76.0000, routeLat, 76.1000, eastWestRoute(routeLat));
+        forceJtsFallback(pool);
+        stubPassengerRouteAlongDriverSegment(routeLat, 76.0300, 76.0700);
+
+        // Pickup well within range (500m), dropoff well beyond range (3500m).
+        double pickupLat = latOffsetMeters(routeLat, 500.0);
+        double dropoffLat = latOffsetMeters(routeLat, 3500.0);
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "Pickup", pickupLat, 76.0300,
+                "Dropoff", dropoffLat, 76.0700);
+
+        assertTrue(results.isEmpty(), "AND semantics: one point beyond the radius must reject the whole candidate");
+    }
+
+    // =========================================================================
+    //  Phase 6 — pickup/dropoff scoring at 0m / 1500m / 3000m
+    //  score = clamp(100 * (1 - distance / maxSpatialDistanceMeters))
+    //  0m -> 100, 1500m -> 50, 3000m -> 0
+    // =========================================================================
+
+    @Test
+    @DisplayName("Phase 6 scoring: 0m pickup/dropoff distance → score 100")
+    void testScoring_ZeroMeters_Score100() {
+        VehiclePoolEntity pool = activePool("pool_score_0",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_score_0", 0.0, 0.0)));
+        when(poolRepository.findAllById(List.of("pool_score_0"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertEquals(100.0, results.get(0).getPickupScore(), 0.01);
+        assertEquals(100.0, results.get(0).getDropoffScore(), 0.01);
+    }
+
+    @Test
+    @DisplayName("Phase 6 scoring: 1500m pickup/dropoff distance → score ≈ 50")
+    void testScoring_1500Meters_Score50() {
+        VehiclePoolEntity pool = activePool("pool_score_1500",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_score_1500", 1500.0, 1500.0)));
+        when(poolRepository.findAllById(List.of("pool_score_1500"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertEquals(50.0, results.get(0).getPickupScore(), 0.01);
+        assertEquals(50.0, results.get(0).getDropoffScore(), 0.01);
+    }
+
+    @Test
+    @DisplayName("Phase 6 scoring: exactly 3000m pickup/dropoff distance → score 0")
+    void testScoring_3000Meters_Score0() {
+        VehiclePoolEntity pool = activePool("pool_score_3000",
+                22.7300, 75.8650, 22.7196, 75.8570, sampleRouteLineString());
+        when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), any(LocalDateTime.class)))
+                .thenReturn(List.of(projection("pool_score_3000", 3000.0, 3000.0)));
+        when(poolRepository.findAllById(List.of("pool_score_3000"))).thenReturn(List.of(pool));
+        when(memberRepository.findByUserId(any())).thenReturn(List.of());
+
+        List<PoolResponse> results = vehiclePoolService.searchPoolsSpatial(
+                null,
+                "PickupPoint", 22.7280, 75.8700,
+                "DropoffPoint", 22.7220, 75.8600);
+
+        assertEquals(1, results.size());
+        assertEquals(0.0, results.get(0).getPickupScore(), 0.01);
+        assertEquals(0.0, results.get(0).getDropoffScore(), 0.01);
+    }
+
+    // =========================================================================
     //  Phase 4 — Direction Compatibility Tests
     // =========================================================================
 
@@ -741,7 +1097,7 @@ class VehiclePoolServiceTest {
      * Empty candidate list → return empty list, not an error.
      */
     @Test
-    @DisplayName("No candidates within 500 m → return empty list, not an error")
+    @DisplayName("No candidates within 3000 m → return empty list, not an error")
     void testSpatialSearch_NoCandidates_EmptyList() {
         when(poolRepository.findSpatialCandidates(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
                 anyDouble(), any(LocalDateTime.class)))

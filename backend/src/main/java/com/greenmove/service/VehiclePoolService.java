@@ -64,6 +64,15 @@ public class VehiclePoolService {
     @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-detour-candidates:10}")
     private int maxDetourCandidates;
 
+    /**
+     * Phase 3 spatial candidate radius (metres). Applied identically to BOTH the
+     * PostGIS ST_DWithin predicates (pickup and dropoff) and to the H2/JTS in-memory
+     * fallback used only in non-PostgreSQL (test) environments. 3000m is inclusive on
+     * both ends (a point exactly on the boundary is a candidate).
+     */
+    @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-spatial-distance-meters:3000}")
+    private double maxSpatialDistanceMeters;
+
     @org.springframework.beans.factory.annotation.Value("${greenmove.vehicle-pool.matching.max-detour-distance-meters:3000}")
     private double maxDetourDistanceMeters;
 
@@ -197,15 +206,15 @@ public class VehiclePoolService {
      * Phase 3 – PostGIS spatial candidate search.
      *
      * Finds ACTIVE Vehicle Pools whose stored route_geom (a road-aligned LineString,
-     * SRID 4326) lies within MAX_ROUTE_PROXIMITY_METERS of BOTH the passenger's
-     * pickup point AND the passenger's dropoff point.  All filtering is done in
-     * PostgreSQL/PostGIS via ST_DWithin so the existing GiST index on route_geom is used.
+     * SRID 4326) lies within maxSpatialDistanceMeters (configurable, default 3000m) of
+     * BOTH the passenger's pickup point AND the passenger's dropoff point. All filtering
+     * is done in PostgreSQL/PostGIS via ST_DWithin so the existing GiST index on
+     * route_geom is used.
      *
      *
      * Falls back to the legacy text-based searchPools when coordinates are absent, so
      * existing callers that only send origin/destination strings keep working unchanged.
      */
-    static final double MAX_ROUTE_PROXIMITY_METERS = 500.0;
 
     private static class CandidatePair {
         VehiclePoolEntity entity;
@@ -262,7 +271,7 @@ public class VehiclePoolService {
             projections = poolRepository.findSpatialCandidates(
                     originLatitude, originLongitude,
                     destinationLatitude, destinationLongitude,
-                    MAX_ROUTE_PROXIMITY_METERS,
+                    maxSpatialDistanceMeters,
                     now);
         } catch (Exception e) {
             if (isH2Database()) {
@@ -289,7 +298,7 @@ public class VehiclePoolService {
                         }
                         double pickupDist = distancePointToLineStringMeters(originLatitude, originLongitude, p.getRouteGeom());
                         double dropoffDist = distancePointToLineStringMeters(destinationLatitude, destinationLongitude, p.getRouteGeom());
-                        if (pickupDist <= MAX_ROUTE_PROXIMITY_METERS && dropoffDist <= MAX_ROUTE_PROXIMITY_METERS) {
+                        if (pickupDist <= maxSpatialDistanceMeters && dropoffDist <= maxSpatialDistanceMeters) {
                             Point pickupPt = createPoint(originLatitude, originLongitude);
                             Point dropoffPt = createPoint(destinationLatitude, destinationLongitude);
                             double pickupPos = locatePointOnLineString(pickupPt, p.getRouteGeom());
@@ -587,10 +596,10 @@ public class VehiclePoolService {
             double oScore = clampScore(res.getRouteOverlapPercentage() != null ? res.getRouteOverlapPercentage() : 0.0);
             res.setOverlapScore(Math.round(oScore * 10.0) / 10.0);
             
-            double pScore = normalizeInverseDistance(res.getPickupDistanceMeters(), MAX_ROUTE_PROXIMITY_METERS);
+            double pScore = normalizeInverseDistance(res.getPickupDistanceMeters(), maxSpatialDistanceMeters);
             res.setPickupScore(Math.round(pScore * 10.0) / 10.0);
             
-            double dScore = normalizeInverseDistance(res.getDropoffDistanceMeters(), MAX_ROUTE_PROXIMITY_METERS);
+            double dScore = normalizeInverseDistance(res.getDropoffDistanceMeters(), maxSpatialDistanceMeters);
             res.setDropoffScore(Math.round(dScore * 10.0) / 10.0);
             
             double dtScore = normalizeInversePercentage(res.getDetourPercentage(), maxDetourPercentage);
