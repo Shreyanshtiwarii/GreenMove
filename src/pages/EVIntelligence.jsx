@@ -16,6 +16,31 @@ const SAFETY_MARGIN_KM = 15;
 const AVERAGE_RATE_INR_PER_KWH = 16;
 
 /**
+ * Renders the short, network-suffix-free form of a station/location name for display (many
+ * Open Charge Map entries include the network name after an em dash, e.g.
+ * "Station Name — NetworkName"). Falls back gracefully when a name is missing/blank, since
+ * real third-party station data is not guaranteed to include one — this is what was crashing
+ * the page with "Cannot read properties of undefined (reading 'split')".
+ */
+function shortLabel(name) {
+  if (!name || typeof name !== 'string') return 'Unnamed location';
+  const trimmed = name.split('—')[0].trim();
+  return trimmed || 'Unnamed location';
+}
+
+/**
+ * Guarantees every station object has a non-empty, safely-splittable `name` before it enters
+ * component state, so nothing downstream (route titles, stop badges, safety-panel labels) has
+ * to guard against missing metadata from the live Open Charge Map API individually.
+ */
+function withSafeStationNames(stations) {
+  return (stations || []).map((st) => ({
+    ...st,
+    name: (st.name && String(st.name).trim()) || 'Unnamed Charging Station'
+  }));
+}
+
+/**
  * Calculates geodesic distance between two lat/lng coordinates in kilometers using Haversine formula.
  */
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -478,7 +503,7 @@ export default function EVIntelligence() {
     getEVStationsAlongRoute(waypoints, 5.0)
       .then((res) => {
         if (res.success) {
-          setRouteStations(res.stations || []);
+          setRouteStations(withSafeStationNames(res.stations));
           setStationsError(null);
         } else {
           setRouteStations([]);
@@ -503,7 +528,7 @@ export default function EVIntelligence() {
     setLoadingNearby(true);
     getEVStationsNearLocation(currentLocation.lat, currentLocation.lng, 10.0)
       .then((res) => {
-        setNearbyStations(res.success ? (res.stations || []) : []);
+        setNearbyStations(res.success ? withSafeStationNames(res.stations) : []);
       })
       .catch(() => setNearbyStations([]))
       .finally(() => setLoadingNearby(false));
@@ -786,7 +811,7 @@ export default function EVIntelligence() {
         setEvRoute({
           ...leg,
           stops: stops,
-          title: `${originLoc.name} → ${stops[0].name}`
+          title: `${shortLabel(originLoc.name)} → ${shortLabel(stops[0].name)}`
         });
       } else {
         // Multi leg: Current Location -> Stop 1 -> Stop 2 -> ... -> Destination
@@ -826,8 +851,8 @@ export default function EVIntelligence() {
           stops: stops,
           title: [
             originLoc.name,
-            ...stops.map(s => s.name.split('—')[0].trim()),
-            ...(finalDestination ? [finalDestination.name.split('—')[0].trim()] : [])
+            ...stops.map(s => shortLabel(s.name)),
+            ...(finalDestination ? [shortLabel(finalDestination.name)] : [])
           ].join(' → ')
         });
       }
@@ -1150,7 +1175,7 @@ export default function EVIntelligence() {
                       <React.Fragment key={stop.id}>
                         <span className="text-on-surface-variant text-[10px]">→</span>
                         <span className="px-2 py-1 bg-emerald-50 text-emerald-800 font-semibold rounded border border-emerald-200">
-                          Stop {stop.stopNumber}: {stop.name.split('—')[0].trim()}
+                          Stop {stop.stopNumber}: {shortLabel(stop.name)}
                         </span>
                       </React.Fragment>
                     ))}
@@ -1173,7 +1198,7 @@ export default function EVIntelligence() {
                         <p className="text-on-surface-variant"><strong className="text-on-surface">Expected range on arrival:</strong> ~{stop.rangeOnArrivalKm} km</p>
                         <p className="text-on-surface-variant"><strong className="text-on-surface">Reason for recommendation:</strong> {stop.reason}</p>
                         <p className="text-on-surface-variant"><strong className="text-on-surface">Range after charging here:</strong> ~{stop.reachableRangeFromStopKm} km</p>
-                        <p className="text-on-surface-variant"><strong className="text-on-surface">Next charging station distance:</strong> {stop.nextTargetDistanceKm} km to {stop.nextTargetLabel.split('—')[0].trim()}</p>
+                        <p className="text-on-surface-variant"><strong className="text-on-surface">Next charging station distance:</strong> {stop.nextTargetDistanceKm} km to {shortLabel(stop.nextTargetLabel)}</p>
                       </div>
                     ))}
                   </div>
@@ -1286,7 +1311,7 @@ export default function EVIntelligence() {
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-on-surface-variant">
                             <span>From current: <strong className="text-on-surface">{station.safety.distanceFromCurrentKm} km</strong></span>
                             <span>Range on arrival: <strong className="text-on-surface">~{station.safety.remainingRangeAtArrivalKm} km</strong></span>
-                            <span>To next ({station.safety.nextTargetLabel.split('—')[0].trim()}): <strong className="text-on-surface">{station.safety.nextTargetDistanceKm} km</strong></span>
+                            <span>To next ({shortLabel(station.safety.nextTargetLabel)}): <strong className="text-on-surface">{station.safety.nextTargetDistanceKm} km</strong></span>
                             <span>
                               Next reachable:{' '}
                               <strong className={station.safety.nextTargetReachable ? 'text-emerald-700' : 'text-error'}>
@@ -1404,7 +1429,7 @@ export default function EVIntelligence() {
                     <React.Fragment key={stop.id}>
                       <span className="text-on-surface-variant text-[10px]">→</span>
                       <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 font-semibold rounded border border-emerald-200 flex items-center gap-1">
-                        <span>Stop {idx + 1}: {stop.name.split('—')[0].trim()}</span>
+                        <span>Stop {idx + 1}: {shortLabel(stop.name)}</span>
                         <button
                           type="button"
                           onClick={() => handleRemoveStop(stop.id)}
