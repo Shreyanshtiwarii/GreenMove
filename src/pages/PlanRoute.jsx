@@ -948,19 +948,17 @@ export default function PlanRoute() {
       </div>
 
       {/* Right Interactive Map Area (75%) */}
-      <div id="plan-route-map-container" className="flex-1 relative bg-surface-container-low min-h-[360px] md:h-[calc(100vh-64px)] w-full flex flex-col overflow-y-auto md:overflow-hidden">
-        <div className="relative w-full h-[360px] sm:h-[450px] md:h-full shrink-0">
-          <GreenMoveMap 
-            origin={origin} 
-            destination={destination} 
-            route={route}
-            evStations={evStations}
-            onRecenterRef={recenterMapRef} 
-          />
-        </div>
+      <div id="plan-route-map-container" className="flex-1 relative bg-surface-container-low min-h-[400px] h-[450px] md:h-[calc(100vh-64px)] w-full">
+        <GreenMoveMap 
+          origin={origin} 
+          destination={destination} 
+          route={route}
+          evStations={evStations}
+          onRecenterRef={recenterMapRef} 
+        />
 
         {/* Bottom Results Overlay */}
-        <div className="relative mt-3 px-2 sm:px-4 md:px-0 md:mt-0 md:mb-0 md:absolute md:bottom-5 md:left-4 md:right-4 lg:left-8 lg:right-8 z-20 pointer-events-none flex justify-center pb-6 md:pb-0 shrink-0">
+        <div className="absolute md:absolute bottom-3 md:bottom-5 left-2 right-2 md:left-4 md:right-4 lg:left-8 lg:right-8 z-20 pointer-events-none flex justify-center">
           {/* Recommended Route Card */}
           <div className="bg-white/95 backdrop-blur-md rounded-2xl p-3 sm:p-4 lg:p-5 card-shadow border border-tertiary-fixed w-full max-w-3xl pointer-events-auto">
             {/* Traffic Update Notification Card */}

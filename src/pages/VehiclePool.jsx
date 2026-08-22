@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  getPools,
+  searchPools,
   createPool,
   joinPool,
   leavePool,
@@ -15,6 +15,11 @@ const INITIAL_FORM = {
   departureTime: '',
   totalSeats: '4',
   costPerPassenger: ''
+};
+
+const INITIAL_ROUTE_SEARCH = {
+  origin: '',
+  destination: ''
 };
 
 /**
@@ -36,6 +41,19 @@ function formatDateTime(iso) {
     date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     time: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
   };
+}
+
+/** Mirrors the backend's normalizeRouteText: trim + collapse whitespace + lowercase. */
+function normalizeRouteText(value) {
+  if (!value) return '';
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function routesMatch(pool, route) {
+  return (
+    normalizeRouteText(pool.startLocation) === normalizeRouteText(route.origin) &&
+    normalizeRouteText(pool.destination) === normalizeRouteText(route.destination)
+  );
 }
 
 function formatCurrency(value) {
@@ -70,9 +88,17 @@ function getStatusBadge(pool) {
 export default function VehiclePool() {
   const [activeTab, setActiveTab] = useState('browse'); // 'browse' | 'mine'
 
+  // Route-based discovery (Phase 2): Browse Pools no longer loads every pool up front.
+  // The user enters an origin/destination first; `pools` only ever holds the results of
+  // the last successful route search, and `hasSearched` gates whether we show the search
+  // prompt or the results/empty state.
+  const [routeSearch, setRouteSearch] = useState(INITIAL_ROUTE_SEARCH);
+  const [routeSearchFieldErrors, setRouteSearchFieldErrors] = useState({});
   const [pools, setPools] = useState([]);
-  const [loadingPools, setLoadingPools] = useState(true);
+  const [loadingPools, setLoadingPools] = useState(false);
   const [poolsError, setPoolsError] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchedRoute, setSearchedRoute] = useState(null); // { origin, destination } last searched, for the results header
 
   const [myPools, setMyPools] = useState([]);
   const [loadingMyPools, setLoadingMyPools] = useState(false);
@@ -94,18 +120,38 @@ export default function VehiclePool() {
   const [endingPoolId, setEndingPoolId] = useState(null);
   const [endErrors, setEndErrors] = useState({});
 
-  const loadPools = useCallback(async () => {
+  const runRouteSearch = useCallback(async (origin, destination) => {
     setLoadingPools(true);
     setPoolsError(null);
+    setHasSearched(true);
+    setSearchedRoute({ origin, destination });
     try {
-      const data = await getPools();
+      const data = await searchPools(origin, destination);
       setPools(Array.isArray(data) ? data : []);
     } catch (err) {
-      setPoolsError(err.message || 'Unable to load vehicle pools right now.');
+      setPoolsError(err.message || 'Unable to search vehicle pools right now.');
     } finally {
       setLoadingPools(false);
     }
   }, []);
+
+  const handleRouteSearchChange = (e) => {
+    const { name, value } = e.target;
+    setRouteSearch((prev) => ({ ...prev, [name]: value }));
+    setRouteSearchFieldErrors((prev) => ({ ...prev, [name]: undefined }));
+  };
+
+  const handleRouteSearchSubmit = (e) => {
+    e.preventDefault();
+    const origin = routeSearch.origin.trim();
+    const destination = routeSearch.destination.trim();
+    const errors = {};
+    if (!origin) errors.origin = 'Current location / origin is required';
+    if (!destination) errors.destination = 'Destination is required';
+    setRouteSearchFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    runRouteSearch(origin, destination);
+  };
 
   const loadMyPools = useCallback(async () => {
     setLoadingMyPools(true);
@@ -120,10 +166,6 @@ export default function VehiclePool() {
       setLoadingMyPools(false);
     }
   }, []);
-
-  useEffect(() => {
-    loadPools();
-  }, [loadPools]);
 
   useEffect(() => {
     if (activeTab === 'mine' && !myPoolsLoaded) {
@@ -204,7 +246,12 @@ export default function VehiclePool() {
         totalSeats: Number(form.totalSeats),
         costPerPassenger: Number(form.costPerPassenger)
       });
-      setPools((prev) => [created, ...prev]);
+      // Only splice the newly created pool into the current Browse results if the user has
+      // an active route search open and this pool actually matches that route -- Browse no
+      // longer holds "all pools", so we can't just prepend unconditionally.
+      if (hasSearched && searchedRoute && routesMatch(created, searchedRoute)) {
+        setPools((prev) => [created, ...prev]);
+      }
       // The creator's own pool list should reflect a newly created pool too, if loaded.
       setMyPools((prev) => (myPoolsLoaded ? [created, ...prev] : prev));
       setShowCreateModal(false);
@@ -314,8 +361,72 @@ export default function VehiclePool() {
 
       {activeTab === 'browse' && (
         <>
+          {/* Route search -- Browse Pools never loads the full list. The user must
+              search by origin/destination first; only matching, ACTIVE pools with an
+              open seat come back from the server. */}
+          <form
+            onSubmit={handleRouteSearchSubmit}
+            className="bg-surface-container-lowest rounded-2xl p-4 md:p-5 border border-tertiary-fixed shadow-sm mb-lg"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-start">
+              <div>
+                <label htmlFor="routeOrigin" className="block text-label-xs font-semibold text-on-surface mb-1">
+                  Current location / Origin
+                </label>
+                <input
+                  id="routeOrigin"
+                  name="origin"
+                  type="text"
+                  value={routeSearch.origin}
+                  onChange={handleRouteSearchChange}
+                  placeholder="e.g. Indore"
+                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.origin ? 'border-error' : 'border-outline-variant'}`}
+                />
+                {routeSearchFieldErrors.origin && (
+                  <p className="text-error text-label-xs mt-1">{routeSearchFieldErrors.origin}</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="routeDestination" className="block text-label-xs font-semibold text-on-surface mb-1">
+                  Destination
+                </label>
+                <input
+                  id="routeDestination"
+                  name="destination"
+                  type="text"
+                  value={routeSearch.destination}
+                  onChange={handleRouteSearchChange}
+                  placeholder="e.g. Bhopal"
+                  className={`w-full bg-surface-container-low border rounded-xl px-4 py-2.5 text-body-md text-on-surface focus:outline-none focus:border-primary ${routeSearchFieldErrors.destination ? 'border-error' : 'border-outline-variant'}`}
+                />
+                {routeSearchFieldErrors.destination && (
+                  <p className="text-error text-label-xs mt-1">{routeSearchFieldErrors.destination}</p>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={loadingPools}
+                className="mt-0 md:mt-6 bg-primary text-on-primary rounded-xl px-6 py-2.5 text-label-sm font-label-sm hover:bg-primary/90 transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-sm">search</span>
+                <span>Search Pools</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Search prompt -- shown until the user runs their first search */}
+          {!hasSearched && (
+            <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
+              <span className="material-symbols-outlined text-5xl text-outline-variant mb-3">travel_explore</span>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">Search for a vehicle pool</h3>
+              <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md">
+                Enter your current location and destination above to find pools matching your route.
+              </p>
+            </div>
+          )}
+
           {/* Loading state */}
-          {loadingPools && (
+          {hasSearched && loadingPools && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {[0, 1, 2].map((i) => (
                 <div
@@ -332,14 +443,14 @@ export default function VehiclePool() {
           )}
 
           {/* Error state */}
-          {!loadingPools && poolsError && (
+          {hasSearched && !loadingPools && poolsError && (
             <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
               <span className="material-symbols-outlined text-5xl text-error mb-3">error</span>
-              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">Couldn't load vehicle pools</h3>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">Couldn't search vehicle pools</h3>
               <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md mb-6">{poolsError}</p>
               <button
                 type="button"
-                onClick={loadPools}
+                onClick={() => searchedRoute && runRouteSearch(searchedRoute.origin, searchedRoute.destination)}
                 className="bg-primary text-on-primary rounded-xl px-6 py-2.5 text-label-sm font-label-sm hover:bg-primary/90 transition-colors shadow-md cursor-pointer flex items-center gap-2"
               >
                 <span className="material-symbols-outlined text-sm">refresh</span>
@@ -348,13 +459,13 @@ export default function VehiclePool() {
             </div>
           )}
 
-          {/* Empty state */}
-          {!loadingPools && !poolsError && pools.length === 0 && (
+          {/* No matching pools for this route */}
+          {hasSearched && !loadingPools && !poolsError && pools.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 bg-surface-container-lowest border border-tertiary-fixed rounded-2xl my-6">
               <span className="material-symbols-outlined text-5xl text-outline-variant mb-3">group_off</span>
-              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">No vehicle pools yet</h3>
+              <h3 className="text-headline-sm font-headline-sm text-on-surface mb-2">Currently not available for this route.</h3>
               <p className="text-body-md font-body-md text-on-surface-variant text-center max-w-md mb-6">
-                Be the first to create a vehicle pool for your route and invite others to share the ride.
+                Be the first to create a vehicle pool for {searchedRoute?.origin} → {searchedRoute?.destination} and invite others to share the ride.
               </p>
               <button
                 type="button"
@@ -362,14 +473,18 @@ export default function VehiclePool() {
                 className="bg-primary text-on-primary rounded-xl px-6 py-2.5 text-label-sm font-label-sm hover:bg-primary/90 transition-colors shadow-md cursor-pointer flex items-center gap-2"
               >
                 <span className="material-symbols-outlined text-sm">add_circle</span>
-                <span>Create the First Pool</span>
+                <span>Create a Pool for This Route</span>
               </button>
             </div>
           )}
 
           {/* Pool list */}
-          {!loadingPools && !poolsError && pools.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {hasSearched && !loadingPools && !poolsError && pools.length > 0 && (
+            <>
+              <p className="text-label-xs text-on-surface-variant mb-3">
+                {pools.length} pool{pools.length === 1 ? '' : 's'} found for {searchedRoute?.origin} → {searchedRoute?.destination}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {pools.map((pool) => {
                 const { date, time } = formatDateTime(pool.departureTime);
                 const isBusy = actionPoolId === pool.id;
@@ -495,7 +610,8 @@ export default function VehiclePool() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </>
           )}
         </>
       )}

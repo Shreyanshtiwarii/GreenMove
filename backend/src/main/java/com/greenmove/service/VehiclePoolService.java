@@ -72,8 +72,71 @@ public class VehiclePoolService {
         Set<String> joinedPoolIds = joinedPoolIdsFor(currentUserId);
 
         return pools.stream()
+                .filter(p -> isVisibleInBrowse(p, currentUserId, joinedPoolIds))
                 .map(p -> toResponse(p, currentUserId, joinedPoolIds.contains(p.getId()), false))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Public "Browse Pools" visibility rule. ACTIVE pools are visible to everyone, same
+     * as before. Once a pool has been ended by its creator (COMPLETED or TERMINATED), it
+     * is removed from the public browse listing for unrelated users -- but it stays
+     * visible to the pool's creator and to any user who had already joined it, so they
+     * keep a record of a ride they were part of. This is enforced here, server-side, so
+     * it can't be bypassed by a client that skips frontend filtering.
+     */
+    private boolean isVisibleInBrowse(VehiclePoolEntity p, String currentUserId, Set<String> joinedPoolIds) {
+        if (STATUS_ACTIVE.equals(p.getStatus())) {
+            return true;
+        }
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return false;
+        }
+        return currentUserId.equals(p.getCreatorId()) || joinedPoolIds.contains(p.getId());
+    }
+
+    /**
+     * Route-based pool discovery (Phase 2). Unlike {@link #listPools}, this does NOT
+     * return the full browse list -- the caller must supply an origin and a destination,
+     * and only pools that (a) are in the ACTIVE lifecycle state, (b) still have at least
+     * one open seat, (c) haven't already departed, and (d) match both the origin and the
+     * destination (case/whitespace-insensitive) are returned. Terminated, completed, full,
+     * departed, and route-mismatched pools are never returned here, regardless of who's
+     * asking -- this is a strict subset of the Phase 1 browse-visibility rules, enforced
+     * entirely server-side so a client can't get unrelated-route or ended pools by calling
+     * the API directly.
+     */
+    @Transactional(readOnly = true)
+    public List<PoolResponse> searchPools(String currentUserId, String origin, String destination) {
+        if (origin == null || origin.isBlank()) {
+            throw new PoolException(400, "Please enter your current location / origin");
+        }
+        if (destination == null || destination.isBlank()) {
+            throw new PoolException(400, "Please enter your destination");
+        }
+
+        String normalizedOrigin = normalizeRouteText(origin);
+        String normalizedDestination = normalizeRouteText(destination);
+        LocalDateTime now = LocalDateTime.now();
+
+        List<VehiclePoolEntity> candidates =
+                poolRepository.findByStatusAndAvailableSeatsGreaterThanOrderByDepartureTimeAsc(STATUS_ACTIVE, 0);
+        Set<String> joinedPoolIds = joinedPoolIdsFor(currentUserId);
+
+        return candidates.stream()
+                .filter(p -> normalizeRouteText(p.getStartLocation()).equals(normalizedOrigin))
+                .filter(p -> normalizeRouteText(p.getDestination()).equals(normalizedDestination))
+                .filter(p -> p.getDepartureTime() != null && p.getDepartureTime().isAfter(now))
+                .map(p -> toResponse(p, currentUserId, joinedPoolIds.contains(p.getId()), false))
+                .collect(Collectors.toList());
+    }
+
+    /** Case/whitespace-insensitive normalization used to match origin/destination text. */
+    private String normalizeRouteText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", " ").toLowerCase();
     }
 
     /**

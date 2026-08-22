@@ -18,6 +18,14 @@ public interface VehiclePoolRepository extends JpaRepository<VehiclePoolEntity, 
 
     List<VehiclePoolEntity> findByCreatorIdOrderByDepartureTimeAsc(String creatorId);
 
+    // Candidate set for route-based discovery (Phase 2): only pools that are still in
+    // the ACTIVE lifecycle state and still have at least one open seat. Route (origin/
+    // destination) matching is applied on top of this in VehiclePoolService, since it
+    // needs case/whitespace-insensitive comparison that isn't portable across the H2
+    // (dev) and Postgres (prod) dialects this project runs on.
+    List<VehiclePoolEntity> findByStatusAndAvailableSeatsGreaterThanOrderByDepartureTimeAsc(
+            String status, Integer availableSeats);
+
     // Row-level lock so concurrent join/leave requests on the same pool serialize
     // instead of racing each other and over-booking (or under-releasing) seats.
     @Lock(LockModeType.PESSIMISTIC_WRITE)

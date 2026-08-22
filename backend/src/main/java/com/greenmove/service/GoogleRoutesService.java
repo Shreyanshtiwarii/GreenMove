@@ -61,6 +61,10 @@ public class GoogleRoutesService {
                 "longitude", req.getDestination().getLng()
             )));
 
+            // ROOT CAUSE FIX: origin/destination were built above but never attached to the
+            // outbound request body, so every call to Google Routes API was missing the
+            // required "origin"/"destination" fields, causing the persistent
+            // "400 INVALID_ARGUMENT - Origin and destination must be set" error seen in production.
             bodyMap.put("origin", originMap);
             bodyMap.put("destination", destMap);
 
