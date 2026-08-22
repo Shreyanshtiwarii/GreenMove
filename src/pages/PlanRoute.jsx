@@ -383,15 +383,14 @@ export default function PlanRoute() {
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-          const loc = await reverseGeocode(latitude, longitude);
-          if (loc) {
-            setOrigin(loc);
-            setOriginInput(loc.name);
-          } else {
-            const fallbackLoc = { name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, lat: latitude, lng: longitude };
-            setOrigin(fallbackLoc);
-            setOriginInput(fallbackLoc.name);
-          }
+          // reverseGeocode(lng, lat) returns a display-name string only; the actual
+          // route origin must stay pinned to the exact device coordinates returned
+          // by the browser, not to whatever coordinates the geocoder resolves the
+          // address to.
+          const placeName = await reverseGeocode(longitude, latitude);
+          const loc = { name: placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, lat: latitude, lng: longitude };
+          setOrigin(loc);
+          setOriginInput(loc.name);
         } catch (err) {
           console.error("Reverse geocoding failed:", err);
           const fallbackLoc = { name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, lat: latitude, lng: longitude };
