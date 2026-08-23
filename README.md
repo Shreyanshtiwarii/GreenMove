@@ -177,6 +177,8 @@ GreenMove measures personal and community sustainability contributions directly 
 
 ## 🏗️ System Architecture
 
+![GreenMove System Architecture Diagram](docs/assets/system-architecture.png)
+
 ```
                                ┌──────────────┐
                                │     USER     │
