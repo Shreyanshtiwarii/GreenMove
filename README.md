@@ -8,7 +8,7 @@
 [![Backend](https://img.shields.io/badge/Backend-Spring%20Boot%203.4.2-blue.svg)](https://spring.io/projects/spring-boot)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%7C%20Vite%208-blue.svg)](https://vitejs.dev/)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%2016%20%2B%20PostGIS-blue.svg)](https://postgis.net/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 
 ---
 
@@ -227,4 +227,4 @@ cd backend
 - **Event**: IKIGAI 2026
 - **Problem Statement**: IHSA5 — Sustainable Transportation
 - **Repository**: [Nandini-Chourasiya/GreenMove](https://github.com/Nandini-Chourasiya/GreenMove)
-- **License**: Released under the [MIT License](LICENSE).
+
