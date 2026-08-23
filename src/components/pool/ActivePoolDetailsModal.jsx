@@ -178,7 +178,7 @@ export default function ActivePoolDetailsModal({ poolId, onClose }) {
         {!loading && !error && details && (
           <div className="flex flex-col md:flex-row flex-1 min-h-0">
             {/* Map */}
-            <div className="relative w-full md:w-2/3 h-[360px] md:h-[520px] bg-surface-container-low">
+            <div className="relative w-full md:w-2/3 h-[240px] sm:h-[320px] md:h-[520px] bg-surface-container-low shrink-0 md:shrink">
               <GreenMoveMap
                 origin={origin}
                 destination={destination}

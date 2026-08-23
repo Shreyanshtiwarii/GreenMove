@@ -31,22 +31,22 @@ export default function LandingPage() {
   return (
     <div className="font-body-md text-on-surface antialiased bg-[#F7F9F5] min-h-screen selection:bg-primary-container selection:text-on-primary">
       {/* Top Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-md py-4 bg-surface/90 backdrop-blur-md border-b border-outline-variant/30">
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-md py-4 bg-surface/90 backdrop-blur-md border-b border-outline-variant/30">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
           <span className="font-headline-md text-headline-md text-primary tracking-tight">GreenMove</span>
         </div>
-        <div className="hidden md:flex items-center gap-8">
-          <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#how-it-works">How it Works</a>
+        <div className="flex items-center gap-2 sm:gap-8">
+          <a className="hidden sm:inline-block font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#how-it-works">How it Works</a>
           <button 
             onClick={() => navigate('/signin')}
-            className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+            className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer px-2 py-1"
           >
             Sign In
           </button>
           <button 
             onClick={() => navigate('/signup')}
-            className="bg-primary-container text-on-primary font-label-sm text-label-sm px-6 py-2 rounded-lg hover:bg-primary transition-colors shadow-sm cursor-pointer"
+            className="bg-primary-container text-on-primary font-label-sm text-label-sm px-4 sm:px-6 py-2 rounded-lg hover:bg-primary transition-colors shadow-sm cursor-pointer"
           >
             Sign Up
           </button>
@@ -54,27 +54,27 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 md:pt-40 md:pb-32 px-md overflow-hidden">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <section className="relative pt-28 pb-16 md:pt-40 md:pb-32 px-4 md:px-md overflow-hidden">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
           <div className="z-10 relative">
             <h1 className="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-surface mb-6 leading-tight">
               Your destination matters. <br/>
               <span className="text-primary-container">How you get there matters more.</span>
             </h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant mb-10 max-w-xl">
+            <p className="font-body-lg text-body-lg text-on-surface-variant mb-8 sm:mb-10 max-w-xl">
               Intelligent routing that balances time, cost, and carbon footprint. Make sustainable choices effortlessly and track your real-world impact.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <button 
                 onClick={() => navigate('/dashboard')}
-                className="bg-primary-container text-on-primary font-label-sm text-label-sm px-8 py-3 rounded-lg hover:bg-primary transition-colors shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                className="bg-primary-container text-on-primary font-label-sm text-label-sm px-6 sm:px-8 py-3 rounded-lg hover:bg-primary transition-colors shadow-md flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
               >
                 Plan a Sustainable Route
                 <span className="material-symbols-outlined text-sm">arrow_forward</span>
               </button>
               <a 
                 href="#how-it-works"
-                className="bg-surface text-primary-container border border-primary-container font-label-sm text-label-sm px-8 py-3 rounded-lg hover:bg-surface-container transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                className="bg-surface text-primary-container border border-primary-container font-label-sm text-label-sm px-6 sm:px-8 py-3 rounded-lg hover:bg-surface-container transition-colors flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
               >
                 See How It Works
                 <span className="material-symbols-outlined text-sm">play_circle</span>
@@ -83,7 +83,7 @@ export default function LandingPage() {
           </div>
 
           {/* Hero Visual & Floating Metrics */}
-          <div className="relative h-[500px] w-full rounded-[24px] bg-white border border-tertiary-fixed card-shadow overflow-hidden group">
+          <div className="relative h-[380px] sm:h-[450px] md:h-[500px] w-full rounded-[24px] bg-white border border-tertiary-fixed card-shadow overflow-hidden group">
             {/* Abstract Map/Route Background placeholder */}
             <div 
               className="absolute inset-0 bg-cover bg-center opacity-40 mix-blend-multiply" 
@@ -99,10 +99,10 @@ export default function LandingPage() {
               <circle cx="10" cy="90" fill="#181d16" r="1.5"></circle>
             </svg>
             {/* Floating Metric Cards */}
-            <div className="absolute top-8 left-8 bg-white/90 backdrop-blur rounded-xl p-4 border border-outline-variant/30 card-shadow lp-animate-float-1">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center">
-                  <span className="material-symbols-outlined text-on-secondary-container" style={{ fontVariationSettings: "'FILL' 1" }}>cloud</span>
+            <div className="absolute top-4 left-4 sm:top-8 sm:left-8 bg-white/90 backdrop-blur rounded-xl p-3 sm:p-4 border border-outline-variant/30 card-shadow lp-animate-float-1">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-on-secondary-container text-sm sm:text-base" style={{ fontVariationSettings: "'FILL' 1" }}>cloud</span>
                 </div>
                 <div>
                   <p className="font-label-xs text-label-xs text-on-surface-variant">CO2 Saved</p>
@@ -110,10 +110,10 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-            <div className="absolute bottom-12 left-12 bg-white/90 backdrop-blur rounded-xl p-4 border border-outline-variant/30 card-shadow lp-animate-float-2">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
-                  <span className="material-symbols-outlined text-primary">payments</span>
+            <div className="absolute bottom-6 left-4 sm:bottom-12 sm:left-12 bg-white/90 backdrop-blur rounded-xl p-3 sm:p-4 border border-outline-variant/30 card-shadow lp-animate-float-2">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-primary text-sm sm:text-base">payments</span>
                 </div>
                 <div>
                   <p className="font-label-xs text-label-xs text-on-surface-variant">Money Saved</p>
@@ -121,10 +121,10 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-            <div className="absolute top-20 right-8 bg-white/90 backdrop-blur rounded-xl p-4 border border-outline-variant/30 card-shadow lp-animate-float-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#F3F8E8] flex items-center justify-center">
-                  <span className="material-symbols-outlined text-primary">stars</span>
+            <div className="absolute top-4 right-4 sm:top-20 sm:right-8 bg-white/90 backdrop-blur rounded-xl p-3 sm:p-4 border border-outline-variant/30 card-shadow lp-animate-float-3">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#F3F8E8] flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-primary text-sm sm:text-base">stars</span>
                 </div>
                 <div>
                   <p className="font-label-xs text-label-xs text-on-surface-variant">Eco Score</p>
@@ -132,11 +132,11 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-            <div className="absolute bottom-24 right-12 bg-white/90 backdrop-blur rounded-xl p-4 border border-outline-variant/30 card-shadow">
+            <div className="absolute bottom-6 right-4 sm:bottom-24 sm:right-12 bg-white/90 backdrop-blur rounded-xl p-3 sm:p-4 border border-outline-variant/30 card-shadow">
               <p className="font-label-xs text-label-xs text-on-surface-variant mb-1">Solo Trips Avoided</p>
               <div className="flex items-center gap-1 text-primary">
-                <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
-                <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
+                <span className="material-symbols-outlined text-xs sm:text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
+                <span className="material-symbols-outlined text-xs sm:text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
                 <span className="font-headline-md text-headline-md ml-1">14</span>
               </div>
             </div>

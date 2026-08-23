@@ -61,7 +61,7 @@ function AppLayout() {
         }`}
       >
         <Header />
-        <main className="flex-1 flex flex-col h-[calc(100vh-64px)] min-h-0">
+        <main className="flex-1 flex flex-col md:h-[calc(100vh-64px)] min-h-0 overflow-y-auto md:overflow-hidden">
           <Outlet />
         </main>
       </div>

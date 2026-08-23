@@ -236,7 +236,7 @@ public class VehiclePoolService {
     /** Minimum distance (metres) below which pickup and dropoff are considered the same location. */
     private static final double MIN_PICKUP_DROPOFF_SEPARATION_METERS = 50.0;
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = Exception.class)
     public List<PoolResponse> searchPoolsSpatial(
             String currentUserId,
             String originName,
