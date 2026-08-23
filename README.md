@@ -14,7 +14,7 @@
 
 ## Live Demo
 
-- **Live Application**: [https://greenmove.onrender.com](https://greenmove.onrender.com) *(Or your deployed production URL)*
+- **Live Application**: [https://green-move-delta.vercel.app/](https://green-move-delta.vercel.app/)
 - **GitHub Repository**: [https://github.com/Nandini-Chourasiya/GreenMove](https://github.com/Nandini-Chourasiya/GreenMove)
 
 ---
