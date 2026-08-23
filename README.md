@@ -1,475 +1,230 @@
-# 🌱 GreenMove
+# GreenMove
 
-### Sustainable Multimodal Transportation & Mobility Platform
+**Sustainable Multimodal Transportation & Mobility Platform**
 
-> Turn every journey into a smarter, more sustainable transportation decision.
+> *IKIGAI 2026 — Problem IHSA5: Sustainable Transportation*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
-[![Backend: Spring Boot](https://img.shields.io/badge/Backend-Spring%20Boot%203.4-green.svg)](https://spring.io/projects/spring-boot)
-[![Frontend: React + Vite](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-blue.svg)](https://vitejs.dev/)
-[![Database: PostgreSQL + PostGIS](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20PostGIS-blue.svg)](https://postgis.net/)
+[![Backend](https://img.shields.io/badge/Backend-Spring%20Boot%203.4.2-blue.svg)](https://spring.io/projects/spring-boot)
+[![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%7C%20Vite%208-blue.svg)](https://vitejs.dev/)
+[![Database](https://img.shields.io/badge/Database-PostgreSQL%2016%20%2B%20PostGIS-blue.svg)](https://postgis.net/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 📌 Executive Summary
+## Live Demo
 
-Modern urban transit applications force commuters to choose between fragmented solutions: navigation tools focus solely on speed from point A to B, ride-sharing platforms prioritize driver matching without environmental awareness, and EV apps display isolated charging stations.
-
-**GreenMove** bridges these gaps by establishing a unified **transportation decision system**. It connects EV range intelligence, spatial vehicle pooling, multi-provider route planning, and dynamic environmental impact calculations into a single intelligent platform.
-
-$$\text{Decision Matrix} = f(\text{Distance}, \text{Duration}, \text{Financial Cost}, \text{Occupancy}, \text{CO}_2 \text{ Footprint})$$
-
----
-
-## 🚨 Problem vs. GreenMove Approach
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              THE PROBLEM                                │
-│  • Fragmented Mobility Tools: Users switch between 3-4 separate apps.    │
-│  • Ignored Occupancy: Solo driving consumes fuel & increases congestion. │
-│  • EV Range Anxiety: Unplanned EV trips risk running out of charge.     │
-│  • Opaque Impact: Commuters lack real data on their carbon savings.     │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          GREENMOVE APPROACH                             │
-│  An integrated mobility decision layer combining EV trip safety, spatial │
-│  vehicle pooling, multi-engine routing, and real-time impact metrics.   │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           KEY CAPABILITIES                              │
-│  1. 🔋 EV Intelligence & Charging Corridor Discovery                    │
-│  2. 🚗 Spatial Vehicle Pool & Route-Overlap Matching                    │
-│  3. 🗺️ Multi-Provider Resilient Route Planning                          │
-│  4. 📊 Personal & Shared Impact / Financial Savings Dashboard            │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 💡 Why GreenMove?
-
-| Capability | Traditional Navigation | Ride Sharing | EV Tools | GreenMove |
-| :--- | :---: | :---: | :---: | :---: |
-| **Route Planning** | ✓ | Limited | ✓ | **✓** |
-| **EV Trip Intelligence** | Limited | ✗ | ✓ | **✓** |
-| **Spatial Carpool Matching** | ✗ | ✓ | ✗ | **✓** |
-| **Occupancy-Aware Analysis** | Limited | ✓ | ✗ | **✓** |
-| **Cost & Fare Calculations** | ✓ | ✓ | Limited | **✓** |
-| **$\text{CO}_2$ Footprint Comparison** | Limited | Limited | ✓ | **✓** |
-| **Personal Sustainability Impact** | ✗ | Limited | Limited | **✓** |
-
----
-
-## 🚀 Core Features
-
-### 🔋 PRIORITY 1 — EV Intelligence
-
-GreenMove evaluates Electric Vehicle feasibility before and during a trip by cross-referencing vehicle battery state, consumption efficiency, and total route distance against verified charging infrastructure.
-
-```
-User Vehicle & Battery State (Capacity, Charge %, Efficiency)
-                          ↓
-               Total Route Distance (km)
-                          ↓
-      Range & Feasibility Analysis (Safe / Charging Required)
-                          ↓
-   Charging Station Discovery (5.0 km Corridor Search via OpenChargeMap)
-                          ↓
-          EV Trip Safety Recommendation & Station Markers
-```
-
-#### Key Technical Capabilities:
-- **Range & Battery Awareness**: Evaluates available range $R_{\text{avail}} = \text{Capacity (kWh)} \times \left(\frac{\text{Charge } \%}{100}\right) \times \text{Efficiency (km/kWh)}$ against destination distance.
-- **Corridor Search**: Discovers charging stations within a $5.0\text{ km}$ buffer along the route geometry using OpenChargeMap API integration.
-- **Station Infrastructure Insights**: Displays verified connector types, power ratings (kW), address, and distance from route corridor.
-- **Feasibility Statuses**: Categorizes trips into `SAFE` (sufficient charge), `CHARGING_REQUIRED` (suggests route chargers), or `CRITICAL`.
-
----
-
-### 🚗 PRIORITY 2 — Vehicle Pool & Spatial Matching
-
-GreenMove does **not** perform naive destination-only matching. Instead, it utilizes PostGIS spatial indexing and geometric route-overlap algorithms to match passengers with drivers travelling along compatible corridors.
-
-```
-                    Driver Creates Pool (Route Geometry Stored)
-                                       ↓
-                PostGIS Spatial Indexing (ST_DWithin 3000m Buffer)
-                                       ↓
-             Candidate Filtering (Pickup & Drop-off Proximity)
-                                       ↓
-         Route Direction Compatibility (Pickup Index < Dropoff Index)
-                                       ↓
-              Detour & Time Evaluation (≤ 30% Max Detour Limit)
-                                       ↓
-               Composite Match Score Calculation (0 - 100)
-                                       ↓
-               Passenger Joins Pool & Dynamic Fare Applied
-```
-
-#### Matching Criteria:
-1. **Spatial Proximity**: PostGIS `ST_DWithin` filters drivers passing within $3,000\text{m}$ of passenger pickup and dropoff points.
-2. **Direction Compatibility**: Verified via line-string fraction position ($\text{position}_{\text{pickup}} < \text{position}_{\text{dropoff}}$).
-3. **Detour Bounds**: Enforces maximum driver detour constraints ($\le 30\%$ additional distance and $\le 10\text{ km}$ absolute detour).
-4. **Resilient JTS Fallback**: Evaluates in-memory Java Topology Suite (`LengthIndexedLine`) when operating in environments without native PostGIS extensions.
-5. **Fair Dynamic Pricing**: Calculates per-passenger fares based on driver rate per km and actual shared passenger segment distance:
-
-$$\text{Passenger Fare} = \text{RatePerKm} \times \text{Distance}_{\text{passenger\_segment}}$$
-
----
-
-### 🗺️ PRIORITY 3 — Resilient Route Planning
-
-GreenMove incorporates a multi-provider routing architecture that prevents single-point-of-failure routing outages.
-
-```
-                      Primary: Google Routes API v2
-                                   │
-                           (If Unconfigured/Failed)
-                                   ▼
-                     Fallback 1: OpenRouteService
-                                   │
-                           (If Unconfigured/Failed)
-                                   ▼
-                        Fallback 2: Keyless OSRM
-                                   │
-                           (If Unconfigured/Failed)
-                                   ▼
-                      Fallback 3: Geodesic Haversine
-```
-
-#### Why This Architecture Matters:
-- **High Availability**: Fallback layers ensure route calculation never fails even during external API downtime or rate-limit exhaustion.
-- **Multimodal Evaluation**: Simultaneously computes and compares Driving, Transit, Cycling, and Walking options.
-- **Traffic-Aware Re-routing**: Periodically checks for faster routes and prompts commuters when significant time savings are detected.
-
----
-
-### 📊 PRIORITY 4 — Impact & Savings Engine
-
-GreenMove measures personal and community sustainability contributions directly from completed journeys.
-
-#### Calculation Formulas:
-- **Solo Driving Cost**:
-  $$\text{Solo Cost} = \left(\frac{\text{Distance (km)}}{\text{Vehicle Efficiency (km/l)}}\right) \times \text{Fuel Price (\text{₹}/l)}$$
-
-- **Carpool Cost**:
-  $$\text{Carpool Cost} = \text{Passenger Fare}$$
-
-- **Realized Money Saved**:
-  $$\text{Money Saved} = \max(0, \text{Solo Cost} - \text{Carpool Cost})$$
-
-- **$\text{CO}_2$ Emissions Saved**:
-  $$\text{CO}_2 \text{ Saved (kg)} = \left(\frac{\text{Distance (km)}}{\text{Efficiency}}\right) \times \text{Emission Factor}$$
-  *(Emission Factors: Petrol $= 2.3\text{ kg/l}$, Diesel $= 2.7\text{ kg/l}$, CNG $= 1.8\text{ kg/l}$, EV Electricity $= 0.8\text{ kg/kWh}$)*
-
-- **Eco Score**: Composite index ($0 - 100$) derived from completed pools, $\text{CO}_2$ avoided, and shared distance.
-
-> [!NOTE]
-> **Transparency Notice**: Driver earnings are tracked separately as `carpoolEarnings` and are never mislabeled as "Money Saved". Financial and environmental impact figures are comparative estimates calculated using configured vehicle efficiency factors.
-
----
-
-## 🏗️ System Architecture
-
-![GreenMove System Architecture Diagram](docs/assets/system-architecture.png)
-
-```
-                               ┌──────────────┐
-                               │     USER     │
-                               └──────┬───────┘
-                                      │
-                                      ▼
-                      ┌───────────────────────────────┐
-                      │    REACT + VITE FRONTEND      │
-                      │  Dashboard • Vehicle Pool     │
-                      │  Plan Route • EV Intelligence │
-                      │  My Impact • Profile Settings │
-                      └───────────────┬───────────────┘
-                                      │ HTTP / REST
-                                      ▼
-                      ┌───────────────────────────────┐
-                      │     SPRING BOOT BACKEND       │
-                      │  ┌─────────────────────────┐  │
-                      │  │       CONTROLLER        │  │
-                      │  └────────────┬────────────┘  │
-                      │               ▼               │
-                      │  ┌─────────────────────────┐  │
-                      │  │      SERVICE LAYER      │  │
-                      │  └──────┬────────────┬─────┘  │
-                      │         │            │        │
-                      │         ▼            ▼        │
-                      │  ┌───────────┐  ┌───────────┐ │
-                      │  │ REPOSITORY│  │ GOOGLE    │ │
-                      │  └─────┬─────┘  │ ROUTES    │ │
-                      │        │        └─────┬─────┘ │
-                      │        ▼              │       │
-                      │  ┌─────────────────────────┐  │
-                      │  │   POSTGRESQL + POSTGIS  │  │
-                      │  └─────────────────────────┘  │
-                      └───────────────┬───────────────┘
-                                      │ Processed JSON
-                                      ▼
-                      ┌───────────────────────────────┐
-                      │    REACT + VITE FRONTEND      │
-                      │  (Display Results & Insights) │
-                      └───────────────────────────────┘
-```
-
----
-
-## 🔄 Data Flow
-
-![GreenMove Data Flow Diagram](docs/assets/architecture_dfd.png)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Frontend as React + Vite Frontend
-    participant Controller as REST Controllers
-    participant Service as Spring Boot Services
-    participant DB as PostgreSQL + PostGIS
-    participant External as External APIs (Google/ORS/OCM)
-
-    User->>Frontend: Input Trip Request (Origin, Destination, Mode)
-    Frontend->>Controller: HTTP REST Request (JWT Auth)
-    Controller->>Service: Execute Business & Matching Logic
-    alt Spatial Match / Candidate Search
-        Service->>DB: Query Spatial Candidates (ST_DWithin)
-        DB-->>Service: Return Candidate Route Polylines
-    end
-    alt External Route & EV Computation
-        Service->>External: Request Traffic-Aware Route / EV Stations
-        External-->>Service: Return Geometry, Distance, Station Data
-    end
-    Service->>Service: Compute Overlap %, Detour, Fare & CO2 Savings
-    Service-->>Controller: Return Processed DTOs & Match Scores
-    Controller-->>Frontend: JSON REST Response
-    Frontend-->>User: Render Interactive Map & Route Recommendations
-```
-
-### Flow Summary:
-`User Input` $\rightarrow$ `Frontend` $\rightarrow$ `Backend Controller` $\rightarrow$ `Service Layer` $\rightarrow$ `Database / External APIs` $\rightarrow$ `Processed Results` $\rightarrow$ `Frontend UI` $\rightarrow$ `User Insights`.
-
----
-
-## 🧩 Feature Architecture & Module Breakdown
-
-### 1. 🔋 EV Intelligence Module
-- **Purpose**: Evaluates EV trip range safety and discovers corridor charging stations.
-- **Input**: Vehicle battery capacity, current charge %, efficiency, origin, destination.
-- **Processing**: Calculates total distance vs range; performs $5\text{ km}$ corridor spatial search via OpenChargeMap API.
-- **Output**: Feasibility status (`SAFE` / `CHARGING_REQUIRED`), charging station list with connectors and kW power ratings.
-
-### 2. 🚗 Vehicle Pool Matching Module
-- **Purpose**: Matches drivers and passengers based on route geometry compatibility.
-- **Input**: Origin/Destination coordinates, departure time, seat requirements.
-- **Processing**: PostGIS spatial proximity search (`ST_DWithin`), direction check ($\text{pickup} < \text{dropoff}$), detour calculation ($\le 30\%$).
-- **Output**: Ranked candidate pool list, match scores ($0-100$), passenger segment fares.
-
-### 3. 🗺️ Route Planning Module
-- **Purpose**: Provides multimodal travel recommendations with resilient fallback.
-- **Input**: Start point, end point, transit preferences, avoid tolls flag.
-- **Processing**: Executes routing fallback pipeline (Google Routes v2 $\rightarrow$ OpenRouteService $\rightarrow$ OSRM); calculates time, cost, and $\text{CO}_2$.
-- **Output**: Primary & alternative routes, multimodal comparison matrix (Driving, Transit, Cycling, Walking).
-
-### 4. 📊 Impact & Savings Module
-- **Purpose**: Tracks environmental and financial contributions of completed trips.
-- **Input**: Completed trip records, member statuses (`CREDITED`), user vehicle fuel type.
-- **Processing**: Computes solo cost vs carpool cost, applies fuel emission factors ($\text{kg CO}_2/\text{l}$), updates cumulative metrics.
-- **Output**: Eco Score, total money saved, $\text{CO}_2$ saved (kg), solo trips avoided.
-
-### 5. 🔐 Authentication & Security Module
-- **Purpose**: Manages secure user access and profile settings.
-- **Input**: User credentials (email/password or Google OAuth ID token).
-- **Processing**: BCrypt password verification, Google token validation, JWT generation.
-- **Output**: Signed JWT access token, authenticated user session context.
-
----
-
-## 🛠️ Technology Stack
-
-```
-   FRONTEND                        BACKEND                         DATABASE & APIS
-┌──────────────┐                ┌──────────────┐                ┌──────────────────┐
-│  React 18    │                │ Java 21      │                │ PostgreSQL 16    │
-│  Vite 8      │                │ Spring Boot  │                │ PostGIS 3.4      │
-│  Tailwind    │                │ Spring Sec.  │                │ Google Routes v2 │
-│  MapLibre GL │                │ JPA / H2     │                │ OpenChargeMap    │
-└──────────────┘                └──────────────┘                └──────────────────┘
-```
-
-### Frontend
-- **Framework**: React 18 with Vite 8
-- **Styling**: Tailwind CSS with custom design tokens
-- **Mapping**: MapLibre GL & Leaflet for interactive GIS visualization
-- **Icons**: Google Material Symbols Outlined
-
-### Backend
-- **Framework**: Java 21 & Spring Boot 3.4.2
-- **Security**: Spring Security with JWT (JSON Web Tokens) & Google OAuth 2.0 Token Verification
-- **ORM / Data Access**: Spring Data JPA & Hibernate Spatial (JTS Precision Model)
-- **Database Migrations**: Flyway SQL Migrations (`V1__` through `V15__`)
-
-### Database & Spatial Storage
-- **Production Database**: PostgreSQL with PostGIS extension (Spatial reference system SRID 4326)
-- **Local Dev / Testing Database**: In-memory H2 Database with H2GIS spatial dialect support
-
-### External Service Integrations
-- **Routing Engines**: Google Routes API v2, OpenRouteService, OSRM (Open Source Routing Machine)
-- **EV Data**: OpenChargeMap API
-- **Geocoding**: MapTiler Geocoding API & OpenStreetMap Nominatim
-- **Email Service**: Brevo Transactional Email API (with Console fallback)
-
----
-
-## 🔐 Security & Secret Protection
-
-- **Stateless JWT Security**: Requests to protected endpoints (`/api/v1/pools/**`, `/api/v1/impact/**`, `/api/v1/profile/**`) require a valid Bearer JWT header.
-- **Google OAuth 2.0 Verification**: ID tokens issued by Google are verified on the backend using Google's public key certificate verifier (`GoogleTokenVerifierService`).
-- **Password Hashing**: User passwords are encrypted using BCrypt password encoder (`BCryptPasswordEncoder`).
-- **Role-Based Authorization**: Enforces role checks (`USER`, `ADMIN`) across sensitive endpoints.
-- **Email Verification**: Brand-new registrations generate a secure 24-hour verification token.
-
-> [!IMPORTANT]
-> **Secret Protection Guarantee**: Secrets and API keys (`JWT_SECRET`, `GOOGLE_ROUTES_API_KEY`, `VITE_MAPTILER_API_KEY`, `SPRING_DATASOURCE_PASSWORD`) are injected exclusively via environment variables and are **never committed to version control**.
-
----
-
-## 📈 Scalability & Reliability
-
-GreenMove is architected for seamless cloud scale:
-
-- **Stateless REST Layer**: The Spring Boot backend maintains zero session state, enabling horizontal scaling behind a load balancer.
-- **Spatial Indexing**: PostGIS R-Tree indexes (`GIST`) on `route_geom`, `start_point`, and `destination_point` ensure spatial queries run in $O(\log N)$ time even with large pool datasets.
-- **Circuit-Breaker Fallback Pipeline**: Routing calls automatically fallback from Google Routes to OpenRouteService and OSRM, preventing system unavailability during third-party API outages.
-- **Modular Monolith Architecture**: Decoupled domain services (`EVChargingService`, `VehiclePoolService`, `RoutingService`) allow easy extraction into microservices if traffic demands grow.
-
----
-
-## ⚠️ Current Limitations
-
-- **Emission Calculations**: $\text{CO}_2$ savings are comparative estimates derived from standardized fuel factors rather than direct OBD-II vehicle telemetry.
-- **External API Rate Limits**: Route calculation speeds depend on third-party provider response times and API tier limits.
-- **EV Charger Live Status**: Station availability depends on data provided by OpenChargeMap.
-
----
-
-## 🔮 Future Scope & Roadmap
-
-### 📱 Mobile App (iOS / Android)
-Extend GreenMove into native mobile applications built with React Native for real-time turn-by-turn navigation.
-
-### 🎙️ AI Voice Assistant
-Integrate natural language voice queries allowing commuters to request rides and check charging stations hands-free.
-
-### 🧠 Predictive Personal Mobility
-Apply machine learning to user travel history for automated route and departure time recommendations.
-
-### 🌐 Smart Mobility Ecosystem
-Integrate public transit ticketing, micro-mobility (e-bikes/scooters), and municipal parking systems into one seamless pass.
-
-### 💼 Enterprise Partnership Network
-Partner with corporate campuses and municipal transit authorities to offer subsidized employee carpooling.
-
----
-
-## 📸 Application Preview
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           1. EV INTELLIGENCE                              │
-│   • Battery Range Feasibility Analysis                                    │
-│   • OpenChargeMap Corridor Discovery                                      │
-└───────────────────────────────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           2. VEHICLE POOL                                 │
-│   • PostGIS Route-Overlap Matching                                        │
-│   • Detour & Proximity Match Scores                                       │
-└───────────────────────────────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           3. ROUTE PLANNING                               │
-│   • Multimodal Comparison (Driving, Transit, Cycling, Walking)           │
-│   • Live Traffic Re-routing & Fallback Pipeline                           │
-└───────────────────────────────────────────────────────────────────────────┘
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           4. IMPACT & SAVINGS                             │
-│   • Realized Savings & CO2 Metrics Dashboard                              │
-│   • Personal Eco Score & Achievements                                     │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🎥 Demo & Links
-
-- **Live Application**: [https://greenmove.onrender.com](https://greenmove.onrender.com) *(Demo placeholder)*
+- **Live Application**: [https://greenmove.onrender.com](https://greenmove.onrender.com) *(Or your deployed production URL)*
 - **GitHub Repository**: [https://github.com/Nandini-Chourasiya/GreenMove](https://github.com/Nandini-Chourasiya/GreenMove)
 
 ---
 
-## 💻 Local Development Setup
+## Overview
+
+Modern urban transportation systems force commuters to use fragmented tools: traditional navigation engines optimize only for speed, carpooling services lack spatial route matching, and electric vehicle tools display charging infrastructure without evaluating trip feasibility.
+
+**GreenMove** integrates these domains into a single transportation decision platform. By combining EV trip intelligence, PostGIS spatial carpool matching, multi-provider resilient route planning, and real-time environmental impact accounting, GreenMove enables commuters to evaluate travel choices across five dimensions: **Distance**, **Duration**, **Financial Cost**, **Occupancy**, and **Carbon Footprint ($\text{CO}_2$)**.
+
+---
+
+## System Architecture
+
+![GreenMove System Architecture](docs/assets/system-architecture.png)
+
+### Architectural Overview
+
+1. **Client Layer (React 18 + Vite 8)**: Manages interactive GIS maps (MapLibre GL / Leaflet), multimodal route comparison, active carpool tracking, EV trip planning, and impact metrics.
+2. **REST API Gateway & Security Layer (Spring Boot 3.4 + Spring Security)**: Handles stateless JWT authentication, Google OAuth 2.0 verification, input validation, and role-based access control (`USER`, `ADMIN`).
+3. **Domain Service Layer**:
+   - `EVChargingService`: Range feasibility calculation and OpenChargeMap corridor station discovery.
+   - `VehiclePoolService`: PostGIS spatial matching (`ST_DWithin`), candidate filtering, direction verification, detour evaluation, and passenger fare calculation.
+   - `GoogleRoutesService` & `RoutingService`: Multimodal routing, live traffic monitoring, and multi-provider fallback management.
+   - `ImpactService`: Dynamic passenger savings, driver carpool earnings, fuel-based emission accounting, and Eco Score computation.
+4. **Data Layer (PostgreSQL 16 + PostGIS 3.4)**: Stores user credentials, vehicle profiles, spatial route geometries (`LineString` SRID 4326), spatial candidate indexes, pool memberships, and verified impact ledger data.
+
+---
+
+## Core Capabilities & Workflows
+
+### 1. EV Intelligence & Charging Corridor Discovery
+
+Evaluates Electric Vehicle range feasibility and discovers relevant charging stations along planned travel corridors.
+
+- **Range Feasibility Analysis**: Compares total trip distance against vehicle available range calculated from battery capacity (kWh), current charge level (%), and efficiency (km/kWh or kWh/100km):
+
+$$R_{\text{available}} = \text{Battery Capacity (kWh)} \times \left(\frac{\text{Current Charge } \%}{100}\right) \times \text{Efficiency (km/kWh)}$$
+
+- **Trip Feasibility Statuses**:
+  - `SAFE`: Available range exceeds route distance with safety margin.
+  - `CHARGING_REQUIRED`: Available range is insufficient; recommended charging stations along corridor are displayed.
+  - `CRITICAL`: Battery charge is too low for the requested distance.
+- **Corridor Charging Station Search**: Discovers charging stations within a $5.0\text{ km}$ buffer along the route polyline via the OpenChargeMap API, displaying verified connector types, power ratings (kW), and corridor offsets.
+
+### 2. Vehicle Pool & Spatial Route Matching
+
+Provides corridor-based spatial matching for shared commuting using PostGIS spatial indexing and geometric route-overlap logic.
+
+```
+Driver Creates Pool (Route Polyline Stored in PostGIS as SRID 4326)
+                              ↓
+      PostGIS Spatial Candidate Search (ST_DWithin 3000m Buffer)
+                              ↓
+  Direction Compatibility Check (Pickup Position < Dropoff Position)
+                              ↓
+      Driver Detour Evaluation (≤ 30% Max Detour Distance Limit)
+                              ↓
+            Composite Match Score Calculation (0 - 100)
+                              ↓
+       Passenger Joins Pool & Dynamic Fare Applied (Rate/km × Segment)
+```
+
+- **Spatial Indexing (`ST_DWithin`)**: Queries driver route geometries passing within $3,000\text{m}$ of passenger pickup and dropoff coordinates using PostGIS spatial GIST indexes.
+- **Direction Compatibility**: Verifies that the passenger's pickup location appears before the dropoff location along the driver's travel line-string ($\text{pos}_{\text{pickup}} < \text{pos}_{\text{dropoff}}$).
+- **Detour & Time Limits**: Enforces constraints requiring driver detour to remain $\le 30\%$ of original distance and $\le 10\text{ km}$ total deviation.
+- **Dynamic Segment Pricing**: Calculates passenger fares based on actual shared passenger segment distance:
+
+$$\text{Passenger Fare} = \text{RatePerKm} \times \text{Distance}_{\text{passenger\_segment}}$$
+
+- **Resilient JTS Fallback**: Includes an in-memory Java Topology Suite (`LengthIndexedLine`) evaluation mode for non-PostGIS local development and testing environments.
+
+### 3. Resilient Route Planning & Multimodal Engine
+
+Computes multimodal routes while executing a multi-provider fallback strategy to ensure high availability.
+
+```
+Primary Provider: Google Routes API v2 (Traffic-Aware)
+                          ↓ (If Unconfigured / Limit Exceeded)
+Fallback Provider 1: OpenRouteService API
+                          ↓ (If Unconfigured / Limit Exceeded)
+Fallback Provider 2: Keyless OSRM (Open Source Routing Machine)
+                          ↓ (If API Fails)
+Fallback Provider 3: Geodesic Haversine Calculation
+```
+
+- **Multimodal Evaluation**: Simultaneously computes and displays metrics for Driving, Public Transit, Cycling, and Walking.
+- **Live Traffic Monitoring**: Periodically checks traffic conditions on active driving routes and prompts commuters when faster reroutes are available.
+
+### 4. Impact & Savings Accounting
+
+Calculates environmental and financial metrics from completed shared journeys (`CREDITED` member status).
+
+- **Solo Driving Cost**:
+  $$\text{Solo Cost} = \left(\frac{\text{Distance (km)}}{\text{Vehicle Efficiency (km/l)}}\right) \times \text{Fuel Price (\text{₹}/l)}$$
+- **Realized Money Saved (Passenger)**:
+  $$\text{Money Saved} = \max(0, \text{Solo Cost} - \text{Passenger Fare})$$
+- **$\text{CO}_2$ Emissions Saved**:
+  $$\text{CO}_2 \text{ Saved (kg)} = \left(\frac{\text{Distance (km)}}{\text{Vehicle Efficiency}}\right) \times \text{Emission Factor}$$
+  *(Fuel Emission Factors: Petrol $= 2.3\text{ kg/l}$, Diesel $= 2.7\text{ kg/l}$, CNG $= 1.8\text{ kg/l}$, EV Grid Electricity $= 0.8\text{ kg/kWh}$)*
+- **Driver Earnings**: Carpool earnings are tracked independently as `carpoolEarnings` and explicitly distinguished from passenger savings.
+
+---
+
+## Technical Stack
+
+| Component | Technology | Version / Specification |
+| :--- | :--- | :--- |
+| **Frontend Framework** | React | 18.3 |
+| **Build Tool & Bundler** | Vite | 8.2 |
+| **Styling** | Tailwind CSS | Custom design system tokens |
+| **GIS & Mapping** | MapLibre GL / Leaflet | Vector tiles & marker rendering |
+| **Backend Framework** | Java / Spring Boot | JDK 21 / Spring Boot 3.4.2 |
+| **Security Layer** | Spring Security | JWT (Bearer tokens) & Google OAuth 2.0 |
+| **ORM & Spatial dialect** | Spring Data JPA / Hibernate Spatial | JTS Precision Model (SRID 4326) |
+| **Database Migrations** | Flyway | SQL Migrations `V1__` to `V15__` |
+| **Production Database** | PostgreSQL + PostGIS | PostgreSQL 16 / PostGIS 3.4 |
+| **Development Database** | H2 Database | In-memory with H2GIS dialect |
+| **External Routing** | Google Routes v2 / ORS / OSRM | Traffic-aware driving & multimodal |
+| **EV Infrastructure Data** | OpenChargeMap API | Corridor charging station search |
+| **Geocoding** | MapTiler / OpenStreetMap Nominatim | Forward & Reverse geocoding |
+| **Email Delivery** | Brevo API | Transactional verification emails |
+
+---
+
+## Database Migrations & Schema Structure
+
+The database schema is managed via 15 sequential Flyway SQL migrations:
+
+- `V1__create_transit_schema.sql` to `V3__create_admin_schema.sql`: Initial core domain tables.
+- `V4__add_user_authentication.sql`: Auth fields, BCrypt password hash, user roles (`USER`, `ADMIN`).
+- `V5__create_vehicle_pool_schema.sql` & `V6__vehicle_pool_lifecycle_status.sql`: Vehicle pool tables, available seats, lifecycle states (`ACTIVE`, `COMPLETED`, `TERMINATED`).
+- `V7__add_profile_settings.sql` & `V8__add_email_verification.sql`: Vehicle parameters, fuel types, verification tokens.
+- `V9__enable_postgis.sql` to `V13__create_functional_geography_index.sql`: PostGIS spatial extensions, `geography` columns, GIST spatial indexes on route geometries and endpoints.
+- `V14__add_join_pool_phone_and_fare_fields.sql` & `V15__add_my_impact_savings_fields.sql`: Passenger phone validation, fare tracking, realized savings, and cumulative driver earnings.
+
+---
+
+## Security Architecture
+
+- **Stateless Authentication**: Protected REST endpoints require a valid HTTP `Authorization: Bearer <JWT>` header.
+- **Google OAuth 2.0 Integration**: Backend verifies ID tokens issued by Google using `GoogleTokenVerifierService`.
+- **Password Encryption**: User passwords are encrypted with BCrypt (`BCryptPasswordEncoder`).
+- **Input & Phone Validation**: Enforces strict validation rules (e.g. 10-digit numeric phone format `^[0-9]{10}$` for pool joins).
+- **Environment Secret Isolation**: API keys (`GOOGLE_ROUTES_API_KEY`, `JWT_SECRET`, `VITE_MAPTILER_API_KEY`) are managed strictly via environment variables and never committed to version control.
+
+---
+
+## Local Development Setup
 
 ### Prerequisites
-- **Node.js**: v18.x or higher
-- **Java JDK**: 21 or higher
-- **Maven**: 3.8+ (or use included `.\mvnw.cmd`)
-- **PostgreSQL**: 16+ with PostGIS extension (Optional; H2 database is embedded for instant local development)
 
-### 1. Clone Repository
+- **Node.js**: v18.0.0 or higher
+- **Java JDK**: 21
+- **Maven**: 3.8+ (or use included `.\mvnw.cmd`)
+
+### 1. Clone the Repository
+
 ```bash
 git clone https://github.com/Nandini-Chourasiya/GreenMove.git
 cd GreenMove
 ```
 
 ### 2. Frontend Setup
+
 ```bash
-# Install frontend dependencies
+# Install NPM dependencies
 npm install
 
 # Start Vite development server
 npm run dev
 ```
-Frontend will start at `http://localhost:5173` (or `http://localhost:5174`).
+
+The frontend will run locally at `http://localhost:5173` (or `http://localhost:5174`).
 
 ### 3. Backend Setup
+
 ```bash
 cd backend
 
-# Run Spring Boot backend with local test profile (H2 in-memory DB)
+# Run Spring Boot server using local test profile (H2 in-memory DB)
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--spring.profiles.active=test"
 ```
-Backend API will start at `http://localhost:8080`.
+
+The backend API will run locally at `http://localhost:8080`.
+
+### 4. Running Tests
+
+```bash
+# Frontend Unit Tests (Vitest)
+npm run test
+
+# Backend Unit Tests (JUnit 5 + Spring Boot Test)
+cd backend
+.\mvnw.cmd test
+```
 
 ---
 
-## 📚 Research & References
+## System Resiliency & Technical Limitations
 
-### APIs & Documentation
-- [Google Routes API v2](https://developers.google.com/maps/documentation/routes)
-- [OpenChargeMap API](https://openchargemap.org/site/develop/api)
-- [OpenRouteService API](https://openrouteservice.org/dev/#/api-docs)
-- [OSRM (Open Source Routing Machine)](http://project-osrm.org/)
-- [MapTiler Geocoding](https://docs.maptiler.com/cloud/api/geocoding/)
-- [Google OAuth 2.0](https://developers.google.com/identity/gsi/web)
-- [Brevo Transactional Email](https://developers.brevo.com/)
-
-### Core Technologies
-- [Spring Boot 3.4 Documentation](https://docs.spring.io/spring-boot/index.html)
-- [React 18 Documentation](https://react.dev/)
-- [PostGIS Spatial Database Reference](https://postgis.net/documentation/)
-- [Flyway Database Migrations](https://documentation.red-gate.com/flyway)
+- **Routing Provider Redundancy**: If Google Routes API is unconfigured or rate-limited, the system automatically falls back to OpenRouteService, OSRM, and Haversine geodesic calculation without throwing unhandled exceptions to the user.
+- **Spatial Fallback**: If PostGIS extensions are unavailable (e.g., local H2 test profile), the backend switches to Java Topology Suite (`LengthIndexedLine`) in-memory spatial matching.
+- **Data Limitations**: Emission metrics are comparative estimations computed from standard fuel factor references rather than direct OBD-II hardware telemetry.
 
 ---
 
-## 👤 Author & Team
+## Project & Event Information
 
-**GreenMove Team**
+- **Event**: IKIGAI 2026
+- **Problem Statement**: IHSA5 — Sustainable Transportation
 - **Repository**: [Nandini-Chourasiya/GreenMove](https://github.com/Nandini-Chourasiya/GreenMove)
 - **License**: Released under the [MIT License](LICENSE).
