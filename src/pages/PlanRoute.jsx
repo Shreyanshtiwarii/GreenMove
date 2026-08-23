@@ -535,9 +535,9 @@ export default function PlanRoute() {
   const recMeta = getRecommendationHeader();
 
   return (
-    <div className="flex-1 w-full flex flex-col md:flex-row overflow-hidden min-h-[calc(100vh-64px)]">
+    <div className="flex-1 w-full flex flex-col md:flex-row md:overflow-hidden min-h-0">
       {/* Left Input & Selection Drawer (25%) */}
-      <div id="plan-route-input-drawer" className="w-full md:w-[380px] lg:w-[420px] bg-surface-container-lowest border-r border-tertiary-fixed p-4 md:p-6 overflow-y-auto shrink-0 flex flex-col gap-4 shadow-sm z-10">
+      <div id="plan-route-input-drawer" className="w-full md:w-[380px] lg:w-[420px] bg-surface-container-lowest border-b md:border-b-0 md:border-r border-tertiary-fixed p-4 md:p-6 md:overflow-y-auto shrink-0 flex flex-col gap-4 shadow-sm z-10">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="material-symbols-outlined text-primary text-2xl">route</span>
@@ -836,7 +836,7 @@ export default function PlanRoute() {
       </div>
 
       {/* Right Interactive Map Area (75%) */}
-      <div id="plan-route-map-container" className="flex-1 relative bg-surface-container-low min-h-[400px] h-[450px] md:h-[calc(100vh-64px)] w-full">
+      <div id="plan-route-map-container" className="flex-1 relative bg-surface-container-low min-h-[280px] h-[320px] sm:h-[400px] md:h-[calc(100vh-64px)] w-full flex flex-col">
         <GreenMoveMap 
           origin={origin} 
           destination={destination} 
@@ -846,7 +846,7 @@ export default function PlanRoute() {
         />
 
         {/* Bottom Results Overlay */}
-        <div className="absolute md:absolute bottom-3 md:bottom-5 left-2 right-2 md:left-4 md:right-4 lg:left-8 lg:right-8 z-20 pointer-events-none flex justify-center">
+        <div className="relative md:absolute md:bottom-5 left-0 right-0 md:left-4 md:right-4 lg:left-8 lg:right-8 z-20 pointer-events-auto md:pointer-events-none flex justify-center p-3 md:p-0 mt-3 md:mt-0">
           {/* Recommended Route Card */}
           <div className="bg-white/95 backdrop-blur-md rounded-2xl p-3 sm:p-4 lg:p-5 card-shadow border border-tertiary-fixed w-full max-w-3xl pointer-events-auto">
             {/* Traffic Update Notification Card */}
