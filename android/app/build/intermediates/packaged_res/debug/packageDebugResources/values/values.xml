@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:ns1="http://schemas.android.com/tools">
+    <color name="black">#000000</color>
+    <color name="greenmove_accent">#87DA74</color>
+    <color name="greenmove_background">#FFFFFF</color>
+    <color name="greenmove_primary">#004100</color>
+    <color name="greenmove_primary_dark">#002200</color>
+    <color name="greenmove_surface">#FFFFFF</color>
+    <color name="white">#FFFFFF</color>
+    <string name="action_retry">Retry</string>
+    <string name="app_name">GreenMove</string>
+    <string name="download_failed_toast">Download failed</string>
+    <string name="download_started_toast">Download started</string>
+    <string name="error_load_failed_message">Something went wrong while loading the app.</string>
+    <string name="error_load_failed_title">Couldn\'t Load GreenMove</string>
+    <string name="error_no_internet_message">GreenMove needs an internet connection to load. Please check your connection and try again.</string>
+    <string name="error_no_internet_title">No Internet Connection</string>
+    <string name="exit_app_toast">Press back again to exit</string>
+    <string name="permission_camera_rationale">GreenMove needs camera access so you can take a photo for the upload you selected.</string>
+    <string name="permission_denied_toast">Permission denied. Some features may not work.</string>
+    <string name="permission_location_rationale">GreenMove uses your location to plan routes, find nearby EV charging stations, and show you on the map.</string>
+    <style name="Theme.GreenMove" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/greenmove_primary</item>
+        <item name="colorPrimaryDark">@color/greenmove_primary_dark</item>
+        <item name="colorAccent">@color/greenmove_accent</item>
+        <item name="android:statusBarColor">@color/greenmove_primary</item>
+        <item name="android:windowBackground">@color/greenmove_background</item>
+        <item name="android:navigationBarColor" ns1:targetApi="21">@color/greenmove_primary_dark</item>
+    </style>
+</resources>
