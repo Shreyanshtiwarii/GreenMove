@@ -252,6 +252,20 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
+        public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+            super.doUpdateVisitedHistory(view, url, isReload);
+            // GreenMove's frontend is a React Router SPA: navigating from "/" to "/signin" (or
+            // "/signup") happens via JS history.pushState/replaceState and does NOT trigger a
+            // full page load, so onPageFinished() above never fires again for it. Without this
+            // override, updateNativeGoogleButtonVisibility() only ever saw the very first URL
+            // the WebView loaded (e.g. the landing page) and the native "Continue with Google"
+            // button would stay hidden even once the user was actually on /signin or /signup.
+            // doUpdateVisitedHistory() fires on every URL change, including pushState/
+            // replaceState ones, so this is the reliable hook for SPA route changes.
+            updateNativeGoogleButtonVisibility(url);
+        }
+
+        @Override
         public void onReceivedError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceError error) {
             super.onReceivedError(view, request, error);
             if (request.isForMainFrame()) {
