@@ -7,11 +7,14 @@ color greenmove_primary
 color greenmove_primary_dark
 color greenmove_surface
 color white
+drawable bg_google_button
+drawable ic_google_logo
 drawable ic_launcher_background
 drawable ic_launcher_foreground
 id errorLayout
 id errorMessage
 id errorTitle
+id nativeGoogleSignInButton
 id popupCloseButton
 id popupWebView
 id progressBar
@@ -31,6 +34,9 @@ string error_load_failed_title
 string error_no_internet_message
 string error_no_internet_title
 string exit_app_toast
+string google_signin_failed_toast
+string google_signin_in_progress
+string native_google_signin_button
 string permission_camera_rationale
 string permission_denied_toast
 string permission_location_rationale

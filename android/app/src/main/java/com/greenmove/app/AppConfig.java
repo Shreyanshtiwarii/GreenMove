@@ -33,7 +33,7 @@ public final class AppConfig {
      * Required for the native "Continue with Google" fallback described below.
      * Leave as the placeholder to keep that fallback disabled.
      */
-    public static final String GOOGLE_WEB_CLIENT_ID = "REPLACE_WITH_YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com";
+    public static final String GOOGLE_WEB_CLIENT_ID = "508063674692-h5duqn8c80jn3gn44khlfdmlp7eqamnq.apps.googleusercontent.com";
 
     /**
      * Your deployed backend's base URL - the SAME value you set for
@@ -42,7 +42,7 @@ public final class AppConfig {
      * src/config.js exactly). Required for the native Google Sign-In fallback
      * below to call the same /auth/google endpoint your frontend already uses.
      */
-    public static final String BACKEND_BASE_URL = "REPLACE_WITH_YOUR_DEPLOYED_BACKEND_URL.example.com";
+    public static final String BACKEND_BASE_URL = "https://greenmove-backend-t28r.onrender.com";
 
     /**
      * Computes the same "{base}/api/v1" API root your frontend's

@@ -34,6 +34,9 @@ public final class ActivityMainBinding implements ViewBinding {
   public final TextView errorTitle;
 
   @NonNull
+  public final LinearLayout nativeGoogleSignInButton;
+
+  @NonNull
   public final ProgressBar progressBar;
 
   @NonNull
@@ -47,12 +50,14 @@ public final class ActivityMainBinding implements ViewBinding {
 
   private ActivityMainBinding(@NonNull FrameLayout rootView, @NonNull LinearLayout errorLayout,
       @NonNull TextView errorMessage, @NonNull TextView errorTitle,
-      @NonNull ProgressBar progressBar, @NonNull Button retryButton,
-      @NonNull SwipeRefreshLayout swipeRefreshLayout, @NonNull WebView webView) {
+      @NonNull LinearLayout nativeGoogleSignInButton, @NonNull ProgressBar progressBar,
+      @NonNull Button retryButton, @NonNull SwipeRefreshLayout swipeRefreshLayout,
+      @NonNull WebView webView) {
     this.rootView = rootView;
     this.errorLayout = errorLayout;
     this.errorMessage = errorMessage;
     this.errorTitle = errorTitle;
+    this.nativeGoogleSignInButton = nativeGoogleSignInButton;
     this.progressBar = progressBar;
     this.retryButton = retryButton;
     this.swipeRefreshLayout = swipeRefreshLayout;
@@ -104,6 +109,12 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.nativeGoogleSignInButton;
+      LinearLayout nativeGoogleSignInButton = ViewBindings.findChildViewById(rootView, id);
+      if (nativeGoogleSignInButton == null) {
+        break missingId;
+      }
+
       id = R.id.progressBar;
       ProgressBar progressBar = ViewBindings.findChildViewById(rootView, id);
       if (progressBar == null) {
@@ -129,7 +140,7 @@ public final class ActivityMainBinding implements ViewBinding {
       }
 
       return new ActivityMainBinding((FrameLayout) rootView, errorLayout, errorMessage, errorTitle,
-          progressBar, retryButton, swipeRefreshLayout, webView);
+          nativeGoogleSignInButton, progressBar, retryButton, swipeRefreshLayout, webView);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

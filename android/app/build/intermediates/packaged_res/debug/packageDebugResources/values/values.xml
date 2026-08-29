@@ -16,6 +16,9 @@
     <string name="error_no_internet_message">GreenMove needs an internet connection to load. Please check your connection and try again.</string>
     <string name="error_no_internet_title">No Internet Connection</string>
     <string name="exit_app_toast">Press back again to exit</string>
+    <string name="google_signin_failed_toast">Google sign-in failed. Please try again.</string>
+    <string name="google_signin_in_progress">Signing in\u2026</string>
+    <string name="native_google_signin_button">Continue with Google</string>
     <string name="permission_camera_rationale">GreenMove needs camera access so you can take a photo for the upload you selected.</string>
     <string name="permission_denied_toast">Permission denied. Some features may not work.</string>
     <string name="permission_location_rationale">GreenMove uses your location to plan routes, find nearby EV charging stations, and show you on the map.</string>

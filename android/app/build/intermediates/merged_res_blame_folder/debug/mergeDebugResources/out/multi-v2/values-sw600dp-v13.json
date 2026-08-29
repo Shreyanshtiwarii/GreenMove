@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.greenmove.app-mergeDebugResources-31:/values-sw600dp-v13/values-sw600dp-v13.xml",
+            "outputFile": "com.greenmove.app-mergeDebugResources-36:/values-sw600dp-v13/values-sw600dp-v13.xml",
             "map": [
                 {
                     "source": "C:\\Users\\ASUS\\.gradle\\caches\\transforms-4\\1ad5d81293179a39a17ccecf7df9a6ef\\transformed\\appcompat-1.7.0\\res\\values-sw600dp-v13\\values-sw600dp-v13.xml",
