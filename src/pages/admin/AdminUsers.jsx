@@ -27,7 +27,7 @@ export default function AdminUsers() {
   const handleToggleStatus = async (userId, currentStatus) => {
     const newStatus = currentStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
     try {
-      const res = await fetch(`http://localhost:8080/api/v1/admin/users/${userId}/status`, {
+      const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Role': 'ADMIN' },
         body: JSON.stringify({ status: newStatus })
@@ -44,7 +44,7 @@ export default function AdminUsers() {
   const handleToggleRole = async (userId, currentRole) => {
     const newRole = currentRole === 'ADMIN' ? 'USER' : 'ADMIN';
     try {
-      const res = await fetch(`http://localhost:8080/api/v1/admin/users/${userId}/role`, {
+      const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Role': 'ADMIN' },
         body: JSON.stringify({ role: newRole })

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config';
 
 export default function DeveloperDashboard() {
   const [diag, setDiag] = useState(null);
@@ -6,12 +7,12 @@ export default function DeveloperDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/v1/developer/diagnostics')
+    fetch(`${API_BASE_URL}/developer/diagnostics`)
       .then(res => res.json())
       .then(data => setDiag(data))
       .catch(err => console.warn('[DeveloperDashboard] Diagnostics fetch error:', err));
 
-    fetch('http://localhost:8080/api/v1/developer/logs')
+    fetch(`${API_BASE_URL}/developer/logs`)
       .then(res => res.json())
       .then(data => setLogs(data))
       .catch(err => console.warn('[DeveloperDashboard] Logs fetch error:', err))

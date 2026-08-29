@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../config';
+
 /**
  * Calculates a public transit itinerary between two points.
  * Queries the Spring Boot backend transit endpoint (which proxies OpenTripPlanner + GTFS).
@@ -7,7 +9,7 @@
  */
 export async function getTransitRoute(origin, destination) {
   try {
-    const backendUrl = "http://localhost:8080/api/v1/transit/plan";
+    const backendUrl = `${API_BASE_URL}/transit/plan`;
     const res = await fetch(backendUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

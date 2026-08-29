@@ -12,8 +12,10 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
+import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Map;
 
@@ -60,6 +62,34 @@ public class BrevoEmailService implements EmailService {
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(5000);
         this.restTemplate = new RestTemplate(factory);
+    }
+
+    /**
+     * Sanity-checks the configured key at startup. Brevo issues two visually-similar but
+     * completely incompatible credential types from the same "SMTP & API" settings page:
+     *   - an SMTP key, prefixed "xsmtpsib-"  -> only valid for SMTP relay auth (smtp-relay.brevo.com)
+     *   - an API key, prefixed "xkeysib-"    -> required for this class's REST calls (api-key header)
+     * Pasting the SMTP key here is a very common mistake (they're generated on the same page)
+     * and causes every send() call to reach Brevo and get a silent 401, which otherwise looks
+     * identical to "the request never left the server". Fail loudly at startup instead.
+     */
+    @PostConstruct
+    void validateApiKeyFormat() {
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return; // not configured - isConfigured() already handles this path via logging on send.
+        }
+        String trimmed = apiKey.trim();
+        if (trimmed.startsWith("xsmtpsib-")) {
+            logger.error("BREVO_API_KEY looks like a Brevo *SMTP* key (starts with 'xsmtpsib-'), not a " +
+                    "*REST API* key. This service calls Brevo's REST API (POST /v3/smtp/email) and needs " +
+                    "the API key instead - go to Brevo -> Settings -> SMTP & API -> API Keys tab (NOT the " +
+                    "SMTP tab) and generate/copy a key starting with 'xkeysib-'. Every verification/notification " +
+                    "email will silently fail (401 Unauthorized from Brevo) until this is corrected.");
+        } else if (!trimmed.startsWith("xkeysib-")) {
+            logger.warn("BREVO_API_KEY does not start with the expected 'xkeysib-' prefix for a Brevo REST " +
+                    "API key. Double-check it was copied in full from Brevo -> SMTP & API -> API Keys - " +
+                    "emails will fail to send if this key is invalid.");
+        }
     }
 
     public boolean isConfigured() {
@@ -128,10 +158,19 @@ public class BrevoEmailService implements EmailService {
 
             HttpStatusCode status = response.getStatusCode();
             if (!status.is2xxSuccessful()) {
-                logger.error("Brevo API returned non-2xx status {} sending \"{}\" to <{}>", status, kind, toEmail);
+                logger.error("Brevo API returned non-2xx status {} sending \"{}\" to <{}>. Response body: {}",
+                        status, kind, toEmail, response.getBody());
             } else {
                 logger.info("Sent \"{}\" email to <{}> via Brevo.", kind, toEmail);
             }
+        } catch (RestClientResponseException e) {
+            // Thrown for non-2xx responses when RestTemplate is configured with a default error
+            // handler (4xx/5xx). Log Brevo's actual error body - e.g. {"code":"unauthorized",
+            // "message":"Key not found"} when the wrong key type (SMTP vs API) is configured -
+            // instead of just a generic exception message, so this is actually debuggable from
+            // server logs alone.
+            logger.error("Failed to send \"{}\" email to <{}> via Brevo: HTTP {} - {}",
+                    kind, toEmail, e.getRawStatusCode(), e.getResponseBodyAsString());
         } catch (Exception e) {
             // Never let an email-provider failure break the underlying request (signup, password
             // change, etc.) - log it and move on. The user can always use "resend verification".

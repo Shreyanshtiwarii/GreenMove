@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config';
 
 export default function AdminEVData() {
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/v1/ev-charging/stations-along-route', {
+    fetch(`${API_BASE_URL}/ev-charging/stations-along-route`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
