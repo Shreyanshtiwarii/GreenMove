@@ -2,6 +2,8 @@ package com.greenmove.controller;
 
 import com.greenmove.entity.JourneyEntity;
 import com.greenmove.repository.JourneyRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +14,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 public class JourneyController {
+
+    private static final Logger logger = LoggerFactory.getLogger(JourneyController.class);
 
     private final JourneyRepository journeyRepository;
 
@@ -36,7 +40,7 @@ public class JourneyController {
             JourneyEntity saved = journeyRepository.save(journey);
             return ResponseEntity.ok(saved);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Error saving journey: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body("Error saving journey: " + e.getMessage());
         }
     }

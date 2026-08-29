@@ -26,17 +26,24 @@ public class DeveloperController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody DeveloperLoginRequest request) {
-        if (request != null && ("nandni".equalsIgnoreCase(request.username.trim()) || "nandini".equalsIgnoreCase(request.username.trim()))
-                && ("nandni".equals(request.password.trim()) || "nandini".equals(request.password.trim()))) {
+        // Defensive null-checks: previously request.username.trim() / request.password.trim()
+        // threw an unhandled NullPointerException (surfaced to the client as an opaque 500) for
+        // any request missing either field, instead of the intended 401 "invalid credentials".
+        String username = request != null && request.username != null ? request.username.trim() : null;
+        String password = request != null && request.password != null ? request.password.trim() : null;
+
+        if (username != null && password != null
+                && ("nandni".equalsIgnoreCase(username) || "nandini".equalsIgnoreCase(username))
+                && ("nandni".equals(password) || "nandini".equals(password))) {
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("token", "dev_token_" + UUID.randomUUID().toString());
-            response.put("username", request.username.trim());
+            response.put("username", username);
             response.put("role", "DEVELOPER");
             response.put("name", "GreenMove Lead Developer");
 
-            adminService.logAudit(request.username.trim(), "Developer Login", "Authentication", "Developer user authenticated successfully", "SUCCESS");
+            adminService.logAudit(username, "Developer Login", "Authentication", "Developer user authenticated successfully", "SUCCESS");
             return ResponseEntity.ok(response);
         }
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

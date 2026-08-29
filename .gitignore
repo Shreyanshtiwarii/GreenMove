@@ -26,3 +26,12 @@ pnpm-debug.log*
 target/
 backend/target/
 
+
+# android build artifacts / IDE / local machine config - should never be
+# committed (present in the uploaded project; excluded going forward)
+android/local.properties
+android/.gradle/
+android/.idea/
+android/app/build/
+android/build/
+*.iml

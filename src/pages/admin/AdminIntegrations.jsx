@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../config';
 
 export default function AdminIntegrations() {
   const [integrations, setIntegrations] = useState([]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/admin/integrations`)
+    fetch('http://localhost:8080/api/v1/admin/integrations')
       .then(res => res.json())
       .then(data => setIntegrations(data))
       .catch(err => console.warn('[AdminIntegrations] Failed to fetch integrations:', err));

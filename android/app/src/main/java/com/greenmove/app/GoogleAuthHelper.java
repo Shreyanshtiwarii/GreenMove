@@ -13,7 +13,6 @@ import androidx.credentials.CustomCredential;
 import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.exceptions.GetCredentialException;
-import androidx.credentials.exceptions.NoCredentialException;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
@@ -97,23 +96,8 @@ public class GoogleAuthHelper {
 
                     @Override
                     public void onError(GetCredentialException e) {
-                        // Logged verbosely because Credential Manager collapses very different root
-                        // causes (user cancelled, no Google account on device, Play services out of
-                        // date, OR the required Android-type OAuth client for this package name +
-                        // signing SHA-1 was never registered in Google Cloud Console - see
-                        // README_ANDROID.md section 2B) into the same generic exception type here.
-                        Log.w(TAG, "Credential Manager sign-in failed/cancelled: " + e.getType(), e);
-                        if (e instanceof NoCredentialException) {
-                            // Most commonly: no Google account signed in on the device, OR (very
-                            // common when everything on the AppConfig/README side looks correct)
-                            // the Android OAuth client (package + SHA-1) hasn't been registered
-                            // yet in Google Cloud Console for this app's signing certificate.
-                            listener.onFailure("No Google account is available, or this app's signing " +
-                                    "certificate isn't registered with Google yet (see README_ANDROID.md, " +
-                                    "\"Register an Android OAuth client\").");
-                        } else {
-                            listener.onFailure("Google sign-in was cancelled or unavailable.");
-                        }
+                        Log.w(TAG, "Credential Manager sign-in failed/cancelled", e);
+                        listener.onFailure("Google sign-in was cancelled or unavailable.");
                     }
                 });
     }
